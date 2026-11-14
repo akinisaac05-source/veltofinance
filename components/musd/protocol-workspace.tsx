@@ -30,7 +30,7 @@ const zeroAddress = '0x0000000000000000000000000000000000000000' as Address
 const factoryPageSize = 25
 
 function asAddress(value: unknown): Address | undefined {
-  return typeof value === 'string' && isAddress(value) ? value : undefined
+  return typeof value === 'string' && isAddress(value) && value.toLowerCase() !== zeroAddress ? value : undefined
 }
 
 function amount(value: unknown) {
@@ -90,6 +90,7 @@ export function ProtocolWorkspace({
   const [maturityInput, setMaturityInput] = useState('')
   const [mintAmount, setMintAmount] = useState('')
   const [tradeAmount, setTradeAmount] = useState('')
+  const [tradePercent, setTradePercent] = useState(0)
   const [assetLiquidity, setAssetLiquidity] = useState('')
   const [tokenLiquidity, setTokenLiquidity] = useState('')
   const [removeLiquidityAmount, setRemoveLiquidityAmount] = useState('')
@@ -336,6 +337,10 @@ export function ProtocolWorkspace({
   const walletAssetBalance = typeof musdBalance.data === 'bigint' ? musdBalance.data : BigInt(0)
   const walletTokenBalance = typeof selectedWalletTokenBalance === 'bigint' ? selectedWalletTokenBalance : BigInt(0)
   const walletLiquidityShares = typeof tokenLiquidityBalance.data === 'bigint' ? tokenLiquidityBalance.data : BigInt(0)
+  const tradeInputBalanceRead = tradeDirection === 'MUSD' ? musdBalance.data : selectedWalletTokenBalance
+  const tradeInputBalance = typeof tradeInputBalanceRead === 'bigint' ? tradeInputBalanceRead : BigInt(0)
+  const tradeInputSymbol = tradeDirection === 'MUSD' ? 'MUSD' : `${tradeToken}-MUSD`
+  const tradeOutputSymbol = tradeDirection === 'MUSD' ? `${tradeToken}-MUSD` : 'MUSD'
 
   const invalidateChainData = async () => {
     await queryClient.invalidateQueries()
@@ -491,6 +496,31 @@ export function ProtocolWorkspace({
         args: [tokenAddress, inputAddress, parsedTradeAmount, minOut, account],
       } as never)
     })
+  }
+
+  const selectTradeToken = (token: 'PT' | 'YT') => {
+    if (tradeToken === token) return
+    setTradeToken(token)
+    setTradeAmount('')
+    setTradePercent(0)
+    setAssetLiquidity('')
+    setTokenLiquidity('')
+    setAddLiquidityPercent(0)
+    setRemoveLiquidityAmount('')
+    setRemoveLiquidityPercent(0)
+  }
+
+  const selectTradeDirection = (direction: 'MUSD' | 'TOKEN') => {
+    if (tradeDirection === direction) return
+    setTradeDirection(direction)
+    setTradeAmount('')
+    setTradePercent(0)
+  }
+
+  const applyTradePercent = (value: number) => {
+    const percent = Math.min(100, Math.max(0, value))
+    setTradePercent(percent)
+    setTradeAmount(inputAmount((tradeInputBalance * BigInt(percent)) / BigInt(100)))
   }
 
   const applyAddLiquidityPercent = (value: number) => {
@@ -890,20 +920,36 @@ export function ProtocolWorkspace({
         <div className="workspace-content trade-grid">
           <div className="form-card">
             <span className="eyebrow">LIVE CONSTANT-PRODUCT MARKET</span>
-            <h3>Swap MUSD and yield tokens</h3>
-            <p>Each PT/MUSD and YT/MUSD pool uses on-chain reserves and a 0.30% pool fee. Quotes are not an oracle; use the slippage limit shown below.</p>
-            <div className="segmented-control" role="group" aria-label="Choose market token">
-              <button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => setTradeToken('PT')}>PT / MUSD</button>
-              <button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => setTradeToken('YT')}>YT / MUSD</button>
+            <h3>Swap PT or YT</h3>
+            <p>Choose a pair, then choose whether to buy the token with MUSD or sell it for MUSD. Each swap pays a 0.30% pool fee.</p>
+            <div className="swap-choice-group">
+              <span className="eyebrow">1. Choose pair</span>
+              <div className="segmented-control" role="group" aria-label="Choose market pair">
+                <button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => selectTradeToken('PT')}>PT / MUSD</button>
+                <button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => selectTradeToken('YT')}>YT / MUSD</button>
+              </div>
             </div>
-            <div className="segmented-control" role="group" aria-label="Choose trade direction">
-              <button type="button" className={tradeDirection === 'MUSD' ? 'segment-active' : ''} onClick={() => setTradeDirection('MUSD')}>MUSD in</button>
-              <button type="button" className={tradeDirection === 'TOKEN' ? 'segment-active' : ''} onClick={() => setTradeDirection('TOKEN')}>{tradeToken} in</button>
+            <div className="swap-choice-group">
+              <span className="eyebrow">2. Choose direction</span>
+              <div className="segmented-control swap-direction-control" role="group" aria-label="Choose swap direction">
+                <button type="button" className={tradeDirection === 'MUSD' ? 'segment-active' : ''} onClick={() => selectTradeDirection('MUSD')}>Buy {tradeToken} with MUSD</button>
+                <button type="button" className={tradeDirection === 'TOKEN' ? 'segment-active' : ''} onClick={() => selectTradeDirection('TOKEN')}>Sell {tradeToken} for MUSD</button>
+              </div>
             </div>
+            <div className="liquidity-balance-grid swap-balance-grid" aria-label="Wallet balances for selected pair">
+              <div className="liquidity-balance"><span>Wallet balance</span><strong>{amount(musdBalance.data)} MUSD</strong></div>
+              <div className="liquidity-balance"><span>Wallet balance</span><strong>{amount(selectedWalletTokenBalance)} {tradeToken}-MUSD</strong></div>
+            </div>
+            <div className="liquidity-slider">
+              <div className="liquidity-slider-heading"><label htmlFor="swap-percent">Use {tradeInputSymbol} balance</label><strong>{tradePercent}%</strong></div>
+              <input id="swap-percent" type="range" min="0" max="100" step="1" value={tradePercent} onChange={(event) => applyTradePercent(Number(event.currentTarget.value))} disabled={!address || tradeInputBalance === BigInt(0)} />
+              <div className="liquidity-range-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+            </div>
+            {!marketAddress && <p className="field-hint" role="status">Select a registered market before swapping. No markets are registered in the current factory yet.</p>}
             <form onSubmit={performTrade} className="protocol-form">
-              <label htmlFor="trade-amount">You pay</label>
-              <div className="amount-input"><input id="trade-amount" inputMode="decimal" value={tradeAmount} onChange={(event) => setTradeAmount(event.target.value)} placeholder="0.00" /><span>{tradeDirection === 'MUSD' ? 'MUSD' : tradeToken}</span></div>
-              <div className="quote-row"><span>Estimated output</span><strong>{amount(marketQuote.data)} {tradeDirection === 'MUSD' ? tradeToken : 'MUSD'}</strong></div>
+              <div className="liquidity-input-label"><label htmlFor="trade-amount">You pay in {tradeInputSymbol}</label><span>Available: {amount(tradeInputBalanceRead)} {tradeInputSymbol}</span></div>
+              <div className="amount-input"><input id="trade-amount" inputMode="decimal" value={tradeAmount} onChange={(event) => { setTradeAmount(event.target.value); setTradePercent(0) }} placeholder="0.00" /><span>{tradeInputSymbol}</span></div>
+              <div className="quote-row"><span>You receive (estimated)</span><strong>{amount(marketQuote.data)} {tradeOutputSymbol}</strong></div>
               <div className="quote-row"><span>Maximum slippage</span><strong>1.00%</strong></div>
               <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !marketQuote.data || marketQuote.data === BigInt(0)}>{busy ? 'Waiting for wallet…' : 'Approve and swap'}</button>
             </form>
@@ -913,8 +959,8 @@ export function ProtocolWorkspace({
             <h3>Manage pool liquidity</h3>
             <p>Add MUSD and {tradeToken}-MUSD to the selected pool, or withdraw your existing pool shares.</p>
             <div className="segmented-control" role="group" aria-label="Choose liquidity pool">
-              <button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => { setTradeToken('PT'); setAssetLiquidity(''); setTokenLiquidity(''); setAddLiquidityPercent(0); setRemoveLiquidityAmount(''); setRemoveLiquidityPercent(0) }}>PT pool</button>
-              <button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => { setTradeToken('YT'); setAssetLiquidity(''); setTokenLiquidity(''); setAddLiquidityPercent(0); setRemoveLiquidityAmount(''); setRemoveLiquidityPercent(0) }}>YT pool</button>
+              <button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => selectTradeToken('PT')}>PT pool</button>
+              <button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => selectTradeToken('YT')}>YT pool</button>
             </div>
 
             <section className="liquidity-section" aria-labelledby="add-liquidity-title">
