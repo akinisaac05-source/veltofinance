@@ -1,41 +1,35 @@
-# MUSD Yield Exchange — Phase 1 Architecture
+# MUSD Yield Exchange — Mezo Testnet Implementation
 
-## Status and verified environment
+## Live environment checks
 
 - Target: Mezo Testnet, chain ID `31611`, RPC `https://rpc.test.mezo.org`, native gas token BTC, Solidity `0.8.28`.
 - The RPC answered `eth_chainId` with `0x7b7b` (31611) on 2026-11-14.
-- The address `0x6f461c68B2c5492C0F5CCEc5a264d692aA7A8e16` was mentioned in secondary research as a savings-rate-related contract. `eth_getCode` returned bytecode, but this does not prove its identity as the sMUSD vault, its source verification, or its ABI. The official materials inspected here did not establish the vault address or a usable interface. It is intentionally NOT wired into the app or contracts.
-- The official product description available in research describes sMUSD as a receipt token for MUSD deposits, with yield associated with periodic protocol-fee distributions and reflected in the share exchange rate. Exact testnet deployment, conversion functions, source and deposit/withdrawal ABI remain unverified. Do not display this as live yield.
+- Live testnet MUSD: `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503`; on-chain `name`, `symbol`, and `decimals` returned `Mezo USD`, `MUSD`, and `18`.
+- Live testnet savings vault: `0x6f461c68B2c5492C0F5CCEc5a264d692aA7A8e16`; on-chain `name`, `symbol`, and `decimals` returned `MUSD Savings Rate`, `sMUSD`, and `18`. Its `musdToken()` returned the MUSD address above, and the EIP-1967 implementation slot resolved to `0x92d12f0a60906b39d81acd9bf8977b6c824cd98c`.
+- The deployed vault is a custom non-ERC-4626 share token with separate `claimableYield(holder)` / `claimYield()` accounting. Its mainnet and testnet implementations are not assumed identical; the exchange checks the live underlying and 18-decimal share/asset interface at deployment.
+- The vault is a proxy, so its implementation and admin policy remain an external protocol trust assumption. Identity checks are not an independent bytecode audit.
 
 ## Components and boundaries
 
-- `IYieldSourceAdapter`: normalized underlying/share token addresses, deposit, withdrawal, exchange-rate, position and share valuation methods.
-- `MockUnderlying` / `MockYieldSource`: local/testnet-only simulation. `MockUnderlying` is a permissionless faucet, while the vault's owner-controlled `simulateYield` mints mock assets into the vault to demonstrate appreciation. This is intentionally unsafe demo code: it is not MUSD, is not live yield, and must never be presented as such or deployed to production.
-- Future `SMUSDYieldSourceAdapter`: implement only after verifying official deployment/source, token decimals, actual vault ABI, conversion semantics, deposit/withdrawal behavior, and testnet access. Keep protocol accounting independent of its implementation.
-- Future `PrincipalToken` / `YieldToken`: distinct ERC-20 claims scoped to a source and maturity.
-- Future `YieldTokenization`: custodies source shares and enforces issuance, yield accounting, maturity, and redemption.
-- Future `YieldMarket` / `YieldRouter`: one market per maturity initially; trading and routing should be separate from custody/accounting.
-- Frontend shell: Markets, Trade, Mint, Portfolio, Redeem navigation; wallet/network entry; no fabricated market/APY values and no simulated transactions.
+- `YieldExchange`: immutable, testnet-only single-maturity custody and settlement contract. It verifies the MUSD/sMUSD addresses, exact 18-decimal denominations, and 1:1 source shares on every deposit.
+- `PrincipalToken` and `YieldToken`: separate transferable ERC-20 claims minted 1:1. YT balances are checkpointed before transfers so already-realized yield cannot move to a later holder.
+- `YieldMarket`: separate permissionless constant-product PT/MUSD and YT/MUSD pools with a 0.30% fee, reserve-based quotes, exact-input swaps, and liquidity positions. It does not expose an oracle price or fabricated APR.
+- Browser app: reads the real Mezo testnet contracts through the public RPC, provides wallet-signed contract deployment and deposit/trade/LP/settlement flows, and stores deployed addresses in the URL rather than local storage or a backend.
+- No mock or faucet contract remains in `contracts/src`; isolated controllable fixtures exist only under `contracts/test` for regression testing.
 
-## Accounting decision (required before implementation)
+## Implemented accounting rule
 
-At deposit time record source shares `S0`, exchange rate `R0`, and maturity `T`; record `P0 = valueOf(S0)` underlying units. Mint 1:1 PT and YT against a defined principal unit only after selecting and auditing the denomination convention. PT is a claim on the maturity principal; YT is a claim to positive appreciation attributable to the tokenized shares. The underlying share balance, not a presumed growing token count, is the source of truth.
+Each exchange has one immutable future maturity. A deposit of `P` MUSD must produce exactly `P` sMUSD shares or the transaction reverts; on success it mints `P` PT plus `P` YT. PT and YT are complementary claims, not two redeemable copies of principal. The source sMUSD balance is the custody record; principal cannot be redeemed before settlement.
 
-Yield attribution should use a cumulative per-share index / checkpoint model: snapshot an exchange-rate baseline for each series, compute positive appreciation from the source's exchange-rate and share accounting, checkpoint the user's YT balance before transfers, and accrue claimable yield without paying the same interval twice. Losses, rate decreases, rounding dust, fees, donations, and whether negative yield offsets later gains must be specified before implementation. The conservative default is no yield claims before a successful positive delta is realized and no principal payout beyond assets held.
+The exchange harvests `claimableYield(exchange)` before new deposits and before YT transfers. Each realized MUSD yield delta is credited through a cumulative per-share index; YT holders are checkpointed before their balances change. Users may claim only credited MUSD held by the exchange. On maturity, the exchange harvests remaining yield, withdraws the actual sMUSD position once, caps PT redemption at the lesser of initial principal and MUSD actually recovered, and allocates any recovered surplus above principal to YT. Any source loss is borne by PT; no principal payout can exceed assets actually recovered. Settlement and PT redemption are guarded against reentrancy and double claims.
 
-At maturity, stop new yield accrual, settle YT against the final accounted value, and permit PT redemption only once per tokenized unit, burning/invalidating the corresponding claim before transferring assets. PT and YT represent complementary claims, not two independently redeemable copies of the full deposit. Enforce exact token/share conservation, maturity checks, reentrancy protection, safe token operations, access control for source/configuration, and per-series isolation. This is a design note, not audited or implemented settlement logic.
+The market uses two independent constant-product pools. Swaps require exact input and a caller-supplied minimum output; the app derives that minimum from a 1% slippage bound. Pool quotes are not an oracle or a fair-value assertion. LP balances are tracked on-chain and intentionally non-transferable in this testnet version. Rounding dust remains in the contracts; it is not swept to an operator.
 
-## Risks / security work before funds
+## Testnet-only status and remaining gates
 
-- No production or testnet PT/YT issuance, trading, oracle, settlement, or custody logic is deployed by Phase 1.
-- Validate rounding, decimals, exchange-rate manipulation, donation/inflation attacks, stale/malicious adapters, pauses, upgrade/config permissions, reentrancy, and token behavior.
-- Add invariant/fuzz tests for conservation, no double redemption/claim, and adversarial exchange-rate paths before deployment. Obtain independent review and testnet rehearsal; never treat mocks as solvency evidence.
-- Solidity compiler is pinned in Foundry config. Foundry is not installed in the current workspace, so Solidity test execution is presently blocked.
-
-## Phase 2 prerequisites
-
-1. Verify official sMUSD testnet deployment/address/source and call semantics from official Mezo docs or explorer; test against the live endpoint.
-2. Finalize principal denomination, yield/loss and maturity accounting; implement PT, YT and tokenization with invariant tests.
-3. Add one maturity market only after reviewing market design and settlement risks.
-4. Wire wallet and contract transactions; keep an explicit mock-vs-real source selector and visually mark simulation.
-5. Run Foundry unit/fuzz tests and frontend checks, then deploy/rehearse only on Mezo Testnet. No deployment has occurred in Phase 1.
+- Seven Foundry regression tests pass for issuance, source custody, pre-deposit yield allocation, transfer checkpointing, source loss, realized surplus, maturity gating, and PT/MUSD trading. Contract sizes are below EVM runtime/initcode limits.
+- The app and deployment artifacts compile against Solidity 0.8.28 / OpenZeppelin 5.6.1. Unit fixtures are isolated in `contracts/test`; they are not wired into the app and must never be deployed.
+- Protocol contracts are not yet deployed to Mezo Testnet. The app includes a wallet-signed deployment flow; a user must connect a wallet on chain 31611, select maturity, and approve the two deployment transactions. No private key is collected or held by the app.
+- No market liquidity is seeded at deployment. Trading starts only after a user supplies PT or YT and MUSD to its pool.
+- These contracts are unaudited testnet code. Do not use mainnet assets or treat passing unit tests as an audit. Remaining checks before wider reliance: test with a funded wallet against the actual vault, verify deposit/claim/withdraw behavior on testnet, fuzz adversarial transfer and rounding sequences, and obtain independent review.
+- MUSD/sMUSD contract addresses and claim selectors were checked using live read-only RPC calls. That does not establish byte-for-byte source verification or eliminate the source proxy's upgrade risk.
