@@ -18,6 +18,7 @@ contract YieldToken is ERC20, ReentrancyGuard {
     mapping(address account => uint256 amount) public accruedYield;
     mapping(address account => uint256 index) public indexPaid;
     uint256 public yieldIndex;
+    uint256 public undistributedYield;
 
     error NotExchange();
     error ZeroAddress();
@@ -27,7 +28,9 @@ contract YieldToken is ERC20, ReentrancyGuard {
         _;
     }
 
-    constructor(address exchange_, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
+    constructor(address exchange_, string memory name_, string memory symbol_)
+        ERC20(name_, symbol_)
+    {
         if (exchange_ == address(0)) revert ZeroAddress();
         exchange = exchange_;
     }
@@ -37,9 +40,19 @@ contract YieldToken is ERC20, ReentrancyGuard {
     }
 
     function distributeYield(uint256 amount) external onlyExchange {
+        if (amount == 0) return;
+
+        uint256 amountToDistribute = amount + undistributedYield;
         uint256 supply = totalSupply();
-        if (amount == 0 || supply == 0) return;
-        yieldIndex += Math.mulDiv(amount, INDEX_SCALE, supply);
+        if (supply == 0) {
+            undistributedYield = amountToDistribute;
+            return;
+        }
+
+        uint256 indexIncrease = Math.mulDiv(amountToDistribute, INDEX_SCALE, supply);
+        uint256 allocated = Math.mulDiv(indexIncrease, supply, INDEX_SCALE);
+        yieldIndex += indexIncrease;
+        undistributedYield = amountToDistribute - allocated;
     }
 
     function claimableYield(address account) external view returns (uint256) {
@@ -61,7 +74,12 @@ contract YieldToken is ERC20, ReentrancyGuard {
         return super.transfer(to, value);
     }
 
-    function transferFrom(address from, address to, uint256 value) public override nonReentrant returns (bool) {
+    function transferFrom(address from, address to, uint256 value)
+        public
+        override
+        nonReentrant
+        returns (bool)
+    {
         IYieldSettlement(exchange).checkpointYield();
         return super.transferFrom(from, to, value);
     }
@@ -76,7 +94,9 @@ contract YieldToken is ERC20, ReentrancyGuard {
         uint256 currentIndex = yieldIndex;
         uint256 paidIndex = indexPaid[account];
         if (currentIndex != paidIndex) {
-            accruedYield[account] += Math.mulDiv(balanceOf(account), currentIndex - paidIndex, INDEX_SCALE);
+            accruedYield[
+                account
+            ] += Math.mulDiv(balanceOf(account), currentIndex - paidIndex, INDEX_SCALE);
             indexPaid[account] = currentIndex;
         }
     }

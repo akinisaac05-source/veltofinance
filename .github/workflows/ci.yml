@@ -1,0 +1,28 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run contracts:artifacts
+      - run: git diff --exit-code -- lib/deployment-artifacts.json
+      - run: pnpm dlx @foundry-rs/forge@1.7.1 fmt --check contracts/src/YieldToken.sol contracts/test/YieldExchange.t.sol
+      - run: pnpm run contracts:test
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm run build

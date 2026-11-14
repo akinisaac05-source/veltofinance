@@ -255,4 +255,122 @@ contract FixtureSavingsRate is ERC20, IMUSDSavingsRate {
             require(received == quoted, "swap respects min output");
             require(pt.balanceOf(address(this)) == received, "PT output delivered");
         }
+
+        function testUndistributedYieldRoundingCarriesToExistingHolders() public {
+            exchange.deposit(3, address(this));
+            YieldToken yt = exchange.yieldToken();
+
+            savingsVault.simulateProtocolYield(address(exchange), 1);
+            exchange.harvestYield();
+            require(yt.claimableYield(address(this)) == 0, "fractional index is not claimable yet");
+            require(yt.undistributedYield() == 1, "unallocated wei is retained");
+
+            savingsVault.simulateProtocolYield(address(exchange), 2);
+            exchange.harvestYield();
+            require(yt.claimableYield(address(this)) == 3, "carried rounding dust reaches holders");
+            require(yt.undistributedYield() == 0, "carried amount is cleared");
+            require(yt.claimYield() == 3, "all accumulated yield can be claimed");
+        }
+
+        function testFuzzSettlementNeverOverpaysSourceRecovery(
+            uint64 principalTokens,
+            uint64 yieldTokens,
+            uint16 withdrawalBpsInput
+        ) public {
+            uint256 principal =
+                (uint256(principalTokens) % 1_000 + 1) * 1 ether;
+            uint256 yieldAmount = (uint256(yieldTokens) % 1_001) * 1 ether;
+            uint256 withdrawalBps = uint256(withdrawalBpsInput) % 10_001;
+
+            exchange.deposit(principal, address(this));
+            if (yieldAmount > 0) savingsVault.simulateProtocolYield(address(exchange), yieldAmount);
+            savingsVault.setWithdrawalBps(withdrawalBps);
+            vm.warp(exchange.maturity());
+            exchange.settle();
+
+            uint256 principalPaid = exchange.redeemPrincipal(principal);
+            uint256 yieldPaid = exchange.yieldToken().claimYield();
+            uint256 principalRecovered = (principal * withdrawalBps) / 10_000;
+            uint256 totalRecovered = principalRecovered + yieldAmount;
+            uint256 roundingBound = (principal / 1 ether) + 1;
+
+            require(principalPaid == principalRecovered, "PT payout matches recovered principal");
+            require(yieldPaid <= yieldAmount, "YT cannot claim more than realized yield");
+            require(principalPaid + yieldPaid <= totalRecovered, "claims cannot exceed recovery");
+            require(
+                totalRecovered - (principalPaid + yieldPaid) <= roundingBound,
+                "rounding loss is bounded"
+            );
+        }
+
+        function testSwapRevertsWhenMinimumOutputIsNotMet() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            PrincipalToken pt = exchange.principalToken();
+            asset.approve(address(market), type(uint256).max);
+            pt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(pt), 100 ether, 100 ether, 1);
+
+            uint256 quote = market.quote(address(pt), address(asset), 1 ether);
+            vm.expectRevert();
+            market.swapExactIn(address(pt), address(asset), 1 ether, quote + 1, address(this));
+        }
+
+        function testMarketRejectsEmptyPoolsAndUnsupportedPairs() public {
+            YieldMarket market = new YieldMarket(address(exchange));
+            PrincipalToken pt = exchange.principalToken();
+
+            require(
+                market.quote(address(pt), address(asset), 1 ether) == 0, "empty pool has no quote"
+            );
+            vm.expectRevert();
+            market.quote(address(0xBEEF), address(asset), 1 ether);
+            vm.expectRevert();
+            market.addLiquidity(address(pt), 0, 1 ether, 1);
+            vm.expectRevert();
+            market.addLiquidity(address(pt), 1, 1, 1);
+            vm.expectRevert();
+            market.removeLiquidity(address(pt), 1, 0, 0);
+            vm.expectRevert();
+            market.swapExactIn(address(pt), address(asset), 1 ether, 0, address(this));
+        }
+
+        function testMarketSwapRejectsUnsupportedInputAndZeroRecipient() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            PrincipalToken pt = exchange.principalToken();
+            asset.approve(address(market), type(uint256).max);
+            pt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(pt), 100 ether, 100 ether, 1);
+
+            vm.expectRevert();
+            market.swapExactIn(address(pt), address(0xBEEF), 1 ether, 0, address(this));
+            vm.expectRevert();
+            market.swapExactIn(address(pt), address(asset), 1 ether, 0, address(0));
+            vm.expectRevert();
+            market.swapExactIn(address(pt), address(asset), 0, 0, address(this));
+        }
+
+        function testLiquidityRemovalHonorsMinimumOutputs() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            PrincipalToken pt = exchange.principalToken();
+            asset.approve(address(market), type(uint256).max);
+            pt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(pt), 100 ether, 100 ether, 1);
+
+            uint256 shares = market.liquidityOf(address(pt), address(this));
+            (uint112 reserveAsset, uint112 reserveToken, uint256 totalLiquidity) =
+                market.pool(address(pt));
+            uint256 expectedAssetOut = (shares * reserveAsset) / totalLiquidity;
+            uint256 expectedTokenOut = (shares * reserveToken) / totalLiquidity;
+
+            vm.expectRevert();
+            market.removeLiquidity(address(pt), shares, 0, expectedTokenOut + 1);
+            (uint256 assetOut, uint256 tokenOut) =
+                market.removeLiquidity(address(pt), shares, expectedAssetOut, expectedTokenOut);
+            require(assetOut == expectedAssetOut, "asset minimum enforced");
+            require(tokenOut == expectedTokenOut, "token minimum enforced");
+            require(market.liquidityOf(address(pt), address(this)) == 0, "position cleared");
+        }
     }
