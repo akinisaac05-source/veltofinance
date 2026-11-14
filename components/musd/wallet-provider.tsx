@@ -8,7 +8,7 @@ import { mezoTestnet } from '@/lib/mezo'
 
 const config = createConfig({
   chains: [mezoTestnet],
-  connectors: [injected()],
+  connectors: [injected({ target: 'metaMask' })],
   transports: { [mezoTestnet.id]: http() },
   ssr: true,
 })
