@@ -730,6 +730,12 @@ export function ProtocolWorkspace({
                 <button className="primary-action" disabled={busy || !canCreateSeries || !maturityInput}>{busy ? 'Waiting for wallet…' : 'Create shared market'}</button>
               </form>
             )}
+            {factoryAddress && (
+              <div className="protocol-form">
+                <p className="field-hint">Deploying a new factory does not change existing markets. After confirmation, set its address as NEXT_PUBLIC_YIELD_SERIES_FACTORY_ADDRESS in project Vars and redeploy the app so everyone uses it.</p>
+                <button type="button" className="secondary-action" onClick={deployFactory} disabled={busy || !targetReady || !sourceVerified}>{busy ? 'Waiting for wallet…' : 'Deploy updated factory'}</button>
+              </div>
+            )}
             {!isConnected && <p className="field-hint">Connect a wallet to create a market. The creator pays deployment gas; no private key is requested or stored by the app.</p>}
             {isConnected && !isTargetChain && <p className="field-hint">Switch your wallet network to Mezo Testnet (chain ID 31611).</p>}
             {isConnected && isTargetChain && !sourceVerified && <p className="field-hint">Waiting for the app to verify the live sMUSD vault before enabling creation.</p>}
