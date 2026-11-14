@@ -14,6 +14,7 @@ import {YieldToken} from "../src/YieldToken.sol";
 interface Vm {
     function chainId(uint256 newChainId) external;
     function warp(uint256 newTimestamp) external;
+    function prank(address sender) external;
     function expectRevert() external;
 }
 
@@ -254,6 +255,95 @@ contract FixtureSavingsRate is ERC20, IMUSDSavingsRate {
                 market.swapExactIn(address(pt), address(asset), 1 ether, quoted, address(this));
             require(received == quoted, "swap respects min output");
             require(pt.balanceOf(address(this)) == received, "PT output delivered");
+        }
+
+        function testYTMarketYieldIsDistributedAndClaimedByLPShares() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            YieldToken yt = exchange.yieldToken();
+            asset.mint(address(this), 100 ether);
+            asset.approve(address(market), type(uint256).max);
+            yt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(yt), 100 ether, 100 ether, 1);
+
+            savingsVault.simulateProtocolYield(address(exchange), 20 ether);
+            require(
+                market.claimableLiquidityYield(address(yt), address(this)) == 0,
+                "unharvested pool yield is not reported as claimable"
+            );
+            uint256 balanceBefore = asset.balanceOf(address(this));
+            uint256 claimed = market.claimLiquidityYield(address(yt));
+
+            require(claimed >= 20 ether - 1_000, "LP receives its pro-rata YT yield");
+            require(asset.balanceOf(address(this)) == balanceBefore + claimed, "MUSD paid to LP");
+            require(
+                market.claimableLiquidityYield(address(yt), address(this)) == 0,
+                "claim clears accrued yield"
+            );
+        }
+
+        function testNewLiquidityProviderCannotCaptureEarlierPoolYield() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            YieldToken yt = exchange.yieldToken();
+            asset.mint(address(this), 100 ether);
+            asset.approve(address(market), type(uint256).max);
+            yt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(yt), 100 ether, 100 ether, 1);
+
+            address newProvider = address(0xBEEF);
+            asset.mint(newProvider, 100 ether);
+            vm.prank(newProvider);
+            asset.approve(address(exchange), 50 ether);
+            vm.prank(newProvider);
+            exchange.deposit(50 ether, newProvider);
+            asset.mint(newProvider, 50 ether);
+            vm.prank(newProvider);
+            asset.approve(address(market), 50 ether);
+            vm.prank(newProvider);
+            yt.approve(address(market), 50 ether);
+
+            savingsVault.simulateProtocolYield(address(exchange), 10 ether);
+            vm.prank(newProvider);
+            market.addLiquidity(address(yt), 50 ether, 50 ether, 1);
+
+            require(
+                market.claimableLiquidityYield(address(yt), address(this)) > 0,
+                "existing LP receives yield earned before the new deposit"
+            );
+            require(
+                market.claimableLiquidityYield(address(yt), newProvider) == 0,
+                "new LP cannot capture prior pool yield"
+            );
+        }
+
+        function testLPKeepsAccruedYieldAfterRemovingLiquidity() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            YieldToken yt = exchange.yieldToken();
+            asset.mint(address(this), 100 ether);
+            asset.approve(address(market), type(uint256).max);
+            yt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(yt), 100 ether, 100 ether, 1);
+
+            savingsVault.simulateProtocolYield(address(exchange), 5 ether);
+            uint256 shares = market.liquidityOf(address(yt), address(this));
+            market.removeLiquidity(address(yt), shares, 0, 0);
+            uint256 accrued = market.claimableLiquidityYield(address(yt), address(this));
+            require(accrued >= 5 ether - 1_000, "earned yield remains claimable after exit");
+            require(market.claimLiquidityYield(address(yt)) == accrued, "exited LP can claim");
+        }
+
+        function testPTPoolDoesNotHaveProtocolYieldClaims() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            PrincipalToken pt = exchange.principalToken();
+            require(
+                market.claimableLiquidityYield(address(pt), address(this)) == 0,
+                "PT pool has no protocol-yield rewards"
+            );
+            vm.expectRevert();
+            market.claimLiquidityYield(address(pt));
         }
 
         function testUndistributedYieldRoundingCarriesToExistingHolders() public {

@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {YieldExchange} from "./YieldExchange.sol";
+import {YieldToken} from "./YieldToken.sol";
 
 /// @notice A testnet-only constant-product market for PT/MUSD and YT/MUSD.
 /// @dev Each side is a separate permissionless pool; quotes are reserve-based, not an oracle.
@@ -18,6 +19,7 @@ contract YieldMarket is ReentrancyGuard {
     uint256 public constant FEE_BPS = 30;
     uint256 private constant BPS = 10_000;
     uint256 private constant MINIMUM_LIQUIDITY = 1_000;
+    uint256 private constant YIELD_INDEX_SCALE = 1e18;
     address private constant LOCKED_LIQUIDITY = address(0xdead);
 
     IERC20 public immutable asset;
@@ -32,6 +34,10 @@ contract YieldMarket is ReentrancyGuard {
     }
 
     mapping(address token => Pool) private pools;
+    mapping(address token => uint256 index) private liquidityYieldIndex;
+    mapping(address token => uint256 amount) private undistributedLiquidityYield;
+    mapping(address token => mapping(address provider => uint256 amount)) private accruedLiquidityYield;
+    mapping(address token => mapping(address provider => uint256 index)) private liquidityYieldIndexPaid;
 
     error WrongChain(uint256 actualChainId);
     error InvalidExchange();
@@ -40,10 +46,13 @@ contract YieldMarket is ReentrancyGuard {
     error InsufficientOutput();
     error InsufficientLiquidity();
     error InsufficientLiquidityTokens();
+    error YieldOnlyPool();
     error ReserveOverflow();
 
     event LiquidityAdded(address indexed provider, address indexed token, uint256 assetAmount, uint256 tokenAmount, uint256 shares);
     event LiquidityRemoved(address indexed provider, address indexed token, uint256 assetAmount, uint256 tokenAmount, uint256 shares);
+    event LiquidityYieldDistributed(address indexed token, uint256 amount, uint256 index);
+    event LiquidityYieldClaimed(address indexed provider, uint256 amount);
     event Swap(address indexed trader, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut, address recipient);
 
     constructor(address exchange_) {
@@ -66,6 +75,31 @@ contract YieldMarket is ReentrancyGuard {
         return pools[token].liquidity[account];
     }
 
+    function claimableLiquidityYield(address token, address account) external view returns (uint256) {
+        _requireToken(token);
+        uint256 index = liquidityYieldIndex[token];
+        return accruedLiquidityYield[token][account]
+            + Math.mulDiv(
+                pools[token].liquidity[account],
+                index - liquidityYieldIndexPaid[token][account],
+                YIELD_INDEX_SCALE
+            );
+    }
+
+    function claimLiquidityYield(address token) external nonReentrant returns (uint256 amount) {
+        _requireToken(token);
+        if (token != address(yieldToken)) revert YieldOnlyPool();
+
+        _harvestLiquidityYield(token);
+        _checkpointLiquidityYield(token, msg.sender);
+        amount = accruedLiquidityYield[token][msg.sender];
+        if (amount == 0) return 0;
+
+        accruedLiquidityYield[token][msg.sender] = 0;
+        asset.safeTransfer(msg.sender, amount);
+        emit LiquidityYieldClaimed(msg.sender, amount);
+    }
+
     function quote(address token, address tokenIn, uint256 amountIn) external view returns (uint256 amountOut) {
         _requireToken(token);
         if (tokenIn != address(asset) && tokenIn != token) revert UnsupportedToken();
@@ -84,6 +118,8 @@ contract YieldMarket is ReentrancyGuard {
         _requireToken(token);
         if (assetAmount == 0 || tokenAmount == 0) revert InvalidAmount();
         Pool storage pair = pools[token];
+        _harvestLiquidityYield(token);
+        _checkpointLiquidityYield(token, msg.sender);
         uint256 supply = pair.totalLiquidity;
 
         uint256 usedAsset = assetAmount;
@@ -125,6 +161,8 @@ contract YieldMarket is ReentrancyGuard {
         _requireToken(token);
         Pool storage pair = pools[token];
         if (shares == 0 || shares > pair.liquidity[msg.sender]) revert InsufficientLiquidityTokens();
+        _harvestLiquidityYield(token);
+        _checkpointLiquidityYield(token, msg.sender);
         uint256 supply = pair.totalLiquidity;
         assetOut = (shares * pair.reserveAsset) / supply;
         tokenOut = (shares * pair.reserveToken) / supply;
@@ -162,6 +200,34 @@ contract YieldMarket is ReentrancyGuard {
 
     function _requireToken(address token) private view {
         if (token != address(principalToken) && token != address(yieldToken)) revert UnsupportedToken();
+    }
+
+    function _harvestLiquidityYield(address token) private {
+        if (token != address(yieldToken)) return;
+
+        uint256 harvested = YieldToken(address(yieldToken)).claimYield();
+        if (harvested == 0) return;
+
+        uint256 supply = pools[token].totalLiquidity;
+        if (supply == 0) return;
+
+        uint256 amountToDistribute = harvested + undistributedLiquidityYield[token];
+        uint256 indexIncrease = Math.mulDiv(amountToDistribute, YIELD_INDEX_SCALE, supply);
+        uint256 allocated = Math.mulDiv(indexIncrease, supply, YIELD_INDEX_SCALE);
+        liquidityYieldIndex[token] += indexIncrease;
+        undistributedLiquidityYield[token] = amountToDistribute - allocated;
+        emit LiquidityYieldDistributed(token, harvested, liquidityYieldIndex[token]);
+    }
+
+    function _checkpointLiquidityYield(address token, address provider) private {
+        uint256 index = liquidityYieldIndex[token];
+        uint256 paidIndex = liquidityYieldIndexPaid[token][provider];
+        if (index != paidIndex) {
+            accruedLiquidityYield[token][provider] += Math.mulDiv(
+                pools[token].liquidity[provider], index - paidIndex, YIELD_INDEX_SCALE
+            );
+        }
+        liquidityYieldIndexPaid[token][provider] = index;
     }
 
     function _sync(Pool storage pair, uint256 addedAsset, uint256 addedToken) private {

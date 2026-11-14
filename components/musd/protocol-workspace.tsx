@@ -306,6 +306,13 @@ export function ProtocolWorkspace({
     args: [tokenAddress ?? zeroAddress, accountRef],
     query: { enabled: Boolean(address && marketAddress && tokenAddress) },
   })
+  const ytLiquidityYieldClaimable = useReadContract({
+    address: marketRef,
+    abi: marketAbi,
+    functionName: 'claimableLiquidityYield',
+    args: [yieldAddress ?? zeroAddress, accountRef],
+    query: { enabled: Boolean(address && marketAddress && yieldAddress) },
+  })
   const sourceYieldRead = useReadContract({
     address: SMUSD_VAULT_ADDRESS,
     abi: [{ type: 'function', name: 'claimableYield', stateMutability: 'view', inputs: [{ name: 'holder', type: 'address' }], outputs: [{ name: 'amount', type: 'uint256' }] }],
@@ -659,6 +666,21 @@ export function ProtocolWorkspace({
     })
   }
 
+  const claimLiquidityYield = async () => {
+    if (!marketAddress || !yieldAddress) return
+    await runWrite('Claim YT-pool LP yield', async (account) => {
+      const { client } = ensureWallet()
+      return client.writeContract({
+        account,
+        chain: mezoTestnet,
+        address: marketAddress,
+        abi: marketAbi,
+        functionName: 'claimLiquidityYield',
+        args: [yieldAddress],
+      } as never)
+    })
+  }
+
   return (
     <section className="workspace-panel" aria-live="polite">
       <div className="workspace-toolbar">
@@ -919,6 +941,42 @@ export function ProtocolWorkspace({
                 <div className="amount-input"><input id="liquidity-token" inputMode="decimal" value={tokenLiquidity} onChange={(event) => { setTokenLiquidity(event.target.value); setAddLiquidityPercent(0) }} placeholder="0.00" /><span>{tradeToken}-MUSD</span></div>
                 <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !tokenAddress}>Approve and add liquidity</button>
               </form>
+            </section>
+
+            <section className="liquidity-section" aria-labelledby="liquidity-yield-title">
+              <div className="liquidity-section-heading">
+                <div>
+                  <span className="eyebrow">PROTOCOL YIELD</span>
+                  <h4 id="liquidity-yield-title">{tradeToken === 'YT' ? 'YT pool LP yield' : 'PT pool rewards'}</h4>
+                </div>
+                {tradeToken === 'YT' && (
+                  <strong className="position-balance">
+                    {ytLiquidityYieldClaimable.isError
+                      ? 'Unavailable'
+                      : `${amount(ytLiquidityYieldClaimable.data)} MUSD`}
+                  </strong>
+                )}
+              </div>
+              {tradeToken === 'YT' ? (
+                <>
+                  <p className="field-hint">
+                    Yield earned by YT held in this pool is allocated to LP shares. Claiming harvests available yield and pays your accrued share in MUSD.
+                    {ytLiquidityYieldClaimable.isError && ' This market may need the updated contract deployment.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={claimLiquidityYield}
+                    disabled={busy || !targetReady || !marketAddress || !yieldAddress || ytLiquidityYieldClaimable.isError || typeof ytLiquidityYieldClaimable.data !== 'bigint' || ytLiquidityYieldClaimable.data === BigInt(0)}
+                  >
+                    Claim YT-pool yield
+                  </button>
+                </>
+              ) : (
+                <p className="field-hint">
+                  PT liquidity earns swap fees only. Protocol yield is distributed through YT balances, not PT pool shares.
+                </p>
+              )}
             </section>
 
             <section className="liquidity-section remove-liquidity-section" aria-labelledby="remove-liquidity-title">
