@@ -38,6 +38,12 @@ function amount(value: unknown) {
   return Number(formatUnits(value, 18)).toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
+function inputAmount(value: bigint) {
+  const formatted = formatUnits(value, 18)
+  const trimmed = formatted.includes('.') ? formatted.replace(/0+$/, '').replace(/\.$/, '') : formatted
+  return trimmed || '0'
+}
+
 function integerSqrt(value: bigint) {
   if (value < BigInt(2)) return value
   let current = value
@@ -87,6 +93,8 @@ export function ProtocolWorkspace({
   const [assetLiquidity, setAssetLiquidity] = useState('')
   const [tokenLiquidity, setTokenLiquidity] = useState('')
   const [removeLiquidityAmount, setRemoveLiquidityAmount] = useState('')
+  const [addLiquidityPercent, setAddLiquidityPercent] = useState(0)
+  const [removeLiquidityPercent, setRemoveLiquidityPercent] = useState(0)
   const [tradeToken, setTradeToken] = useState<'PT' | 'YT'>('PT')
   const [tradeDirection, setTradeDirection] = useState<'MUSD' | 'TOKEN'>('MUSD')
   const [status, setStatus] = useState('')
@@ -317,6 +325,10 @@ export function ProtocolWorkspace({
   const reserveAsset = typeof selectedPoolParts[0] === 'bigint' ? selectedPoolParts[0] : BigInt(0)
   const reserveToken = typeof selectedPoolParts[1] === 'bigint' ? selectedPoolParts[1] : BigInt(0)
   const liquiditySupply = typeof selectedPoolParts[2] === 'bigint' ? selectedPoolParts[2] : BigInt(0)
+  const selectedWalletTokenBalance = tradeToken === 'PT' ? userPtBalance.data : userYtBalance.data
+  const walletAssetBalance = typeof musdBalance.data === 'bigint' ? musdBalance.data : BigInt(0)
+  const walletTokenBalance = typeof selectedWalletTokenBalance === 'bigint' ? selectedWalletTokenBalance : BigInt(0)
+  const walletLiquidityShares = typeof tokenLiquidityBalance.data === 'bigint' ? tokenLiquidityBalance.data : BigInt(0)
 
   const invalidateChainData = async () => {
     await queryClient.invalidateQueries()
@@ -472,6 +484,30 @@ export function ProtocolWorkspace({
         args: [tokenAddress, inputAddress, parsedTradeAmount, minOut, account],
       } as never)
     })
+  }
+
+  const applyAddLiquidityPercent = (value: number) => {
+    const percent = Math.min(100, Math.max(0, value))
+    const percentage = BigInt(percent)
+    let assetAmount = (walletAssetBalance * percentage) / BigInt(100)
+    let tokenAmount = (walletTokenBalance * percentage) / BigInt(100)
+
+    if (liquiditySupply > BigInt(0) && reserveAsset > BigInt(0) && reserveToken > BigInt(0)) {
+      const assetLimitFromToken = (walletTokenBalance * reserveAsset) / reserveToken
+      const maxBalancedAsset = walletAssetBalance < assetLimitFromToken ? walletAssetBalance : assetLimitFromToken
+      assetAmount = (maxBalancedAsset * percentage) / BigInt(100)
+      tokenAmount = (assetAmount * reserveToken) / reserveAsset
+    }
+
+    setAddLiquidityPercent(percent)
+    setAssetLiquidity(inputAmount(assetAmount))
+    setTokenLiquidity(inputAmount(tokenAmount))
+  }
+
+  const applyRemoveLiquidityPercent = (value: number) => {
+    const percent = Math.min(100, Math.max(0, value))
+    setRemoveLiquidityPercent(percent)
+    setRemoveLiquidityAmount(inputAmount((walletLiquidityShares * BigInt(percent)) / BigInt(100)))
   }
 
   const addLiquidity = async (event: FormEvent<HTMLFormElement>) => {
@@ -850,26 +886,60 @@ export function ProtocolWorkspace({
               <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !marketQuote.data || marketQuote.data === BigInt(0)}>{busy ? 'Waiting for wallet…' : 'Approve and swap'}</button>
             </form>
           </div>
-          <div className="form-card">
+          <div className="form-card liquidity-card">
             <span className="eyebrow">PERMISSIONLESS LIQUIDITY</span>
-            <h3>Add or remove liquidity</h3>
-            <p>Provide MUSD and the selected PT or YT token to its pool. Pool shares are non-transferable testnet positions.</p>
+            <h3>Manage pool liquidity</h3>
+            <p>Add MUSD and {tradeToken}-MUSD to the selected pool, or withdraw your existing pool shares.</p>
             <div className="segmented-control" role="group" aria-label="Choose liquidity pool">
-              <button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => setTradeToken('PT')}>PT pool</button>
-              <button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => setTradeToken('YT')}>YT pool</button>
+              <button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => { setTradeToken('PT'); setAssetLiquidity(''); setTokenLiquidity(''); setAddLiquidityPercent(0); setRemoveLiquidityAmount(''); setRemoveLiquidityPercent(0) }}>PT pool</button>
+              <button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => { setTradeToken('YT'); setAssetLiquidity(''); setTokenLiquidity(''); setAddLiquidityPercent(0); setRemoveLiquidityAmount(''); setRemoveLiquidityPercent(0) }}>YT pool</button>
             </div>
-            <form onSubmit={addLiquidity} className="protocol-form">
-              <label htmlFor="liquidity-musd">MUSD amount</label>
-              <div className="amount-input"><input id="liquidity-musd" inputMode="decimal" value={assetLiquidity} onChange={(event) => setAssetLiquidity(event.target.value)} placeholder="0.00" /><span>MUSD</span></div>
-              <label htmlFor="liquidity-token">{tradeToken} amount</label>
-              <div className="amount-input"><input id="liquidity-token" inputMode="decimal" value={tokenLiquidity} onChange={(event) => setTokenLiquidity(event.target.value)} placeholder="0.00" /><span>{tradeToken}</span></div>
-              <button className="secondary-action" disabled={busy || !targetReady || !marketAddress || !tokenAddress}>Approve and add liquidity</button>
-            </form>
-            <form onSubmit={removeLiquidity} className="protocol-form remove-liquidity-form">
-              <label htmlFor="remove-shares">Your {tradeToken} pool shares: {amount(tokenLiquidityBalance.data)}</label>
-              <input id="remove-shares" inputMode="decimal" value={removeLiquidityAmount} onChange={(event) => setRemoveLiquidityAmount(event.target.value)} placeholder="LP shares" />
-              <button className="text-button" disabled={busy || !targetReady || !marketAddress || !tokenLiquidityBalance.data || tokenLiquidityBalance.data === BigInt(0)}>Remove liquidity</button>
-            </form>
+
+            <section className="liquidity-section" aria-labelledby="add-liquidity-title">
+              <div className="liquidity-section-heading">
+                <div>
+                  <span className="eyebrow">ADD TO POOL</span>
+                  <h4 id="add-liquidity-title">Add liquidity</h4>
+                </div>
+              </div>
+              <div className="liquidity-balance-grid" aria-label="Wallet token balances">
+                <div className="liquidity-balance"><span>Wallet balance</span><strong>{amount(musdBalance.data)} MUSD</strong></div>
+                <div className="liquidity-balance"><span>Wallet balance</span><strong>{amount(selectedWalletTokenBalance)} {tradeToken}-MUSD</strong></div>
+              </div>
+              <div className="liquidity-slider">
+                <div className="liquidity-slider-heading"><label htmlFor="add-liquidity-percent">Use wallet balances</label><strong>{addLiquidityPercent}%</strong></div>
+                <input id="add-liquidity-percent" type="range" min="0" max="100" step="1" value={addLiquidityPercent} onChange={(event) => applyAddLiquidityPercent(Number(event.currentTarget.value))} disabled={!address || walletAssetBalance === BigInt(0) || walletTokenBalance === BigInt(0)} />
+                <div className="liquidity-range-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+                <p className="field-hint">For an existing pool, the slider keeps your deposit aligned to its current reserve ratio.</p>
+              </div>
+              <form onSubmit={addLiquidity} className="protocol-form">
+                <div className="liquidity-input-label"><label htmlFor="liquidity-musd">MUSD deposit</label><span>Available: {amount(musdBalance.data)} MUSD</span></div>
+                <div className="amount-input"><input id="liquidity-musd" inputMode="decimal" value={assetLiquidity} onChange={(event) => { setAssetLiquidity(event.target.value); setAddLiquidityPercent(0) }} placeholder="0.00" /><span>MUSD</span></div>
+                <div className="liquidity-input-label"><label htmlFor="liquidity-token">{tradeToken}-MUSD deposit</label><span>Available: {amount(selectedWalletTokenBalance)} {tradeToken}-MUSD</span></div>
+                <div className="amount-input"><input id="liquidity-token" inputMode="decimal" value={tokenLiquidity} onChange={(event) => { setTokenLiquidity(event.target.value); setAddLiquidityPercent(0) }} placeholder="0.00" /><span>{tradeToken}-MUSD</span></div>
+                <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !tokenAddress}>Approve and add liquidity</button>
+              </form>
+            </section>
+
+            <section className="liquidity-section remove-liquidity-section" aria-labelledby="remove-liquidity-title">
+              <div className="liquidity-section-heading">
+                <div>
+                  <span className="eyebrow">WITHDRAW FROM POOL</span>
+                  <h4 id="remove-liquidity-title">Remove liquidity</h4>
+                </div>
+                <strong className="position-balance">{amount(tokenLiquidityBalance.data)} shares</strong>
+              </div>
+              <div className="liquidity-slider">
+                <div className="liquidity-slider-heading"><label htmlFor="remove-liquidity-percent">Withdraw position</label><strong>{removeLiquidityPercent}%</strong></div>
+                <input id="remove-liquidity-percent" type="range" min="0" max="100" step="1" value={removeLiquidityPercent} onChange={(event) => applyRemoveLiquidityPercent(Number(event.currentTarget.value))} disabled={!address || walletLiquidityShares === BigInt(0)} />
+                <div className="liquidity-range-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+              </div>
+              <form onSubmit={removeLiquidity} className="protocol-form remove-liquidity-form">
+                <div className="liquidity-input-label"><label htmlFor="remove-shares">Pool shares to withdraw</label><span>Available: {amount(tokenLiquidityBalance.data)}</span></div>
+                <div className="amount-input"><input id="remove-shares" inputMode="decimal" value={removeLiquidityAmount} onChange={(event) => { setRemoveLiquidityAmount(event.target.value); setRemoveLiquidityPercent(0) }} placeholder="0.00" /><span>Shares</span></div>
+                <button className="secondary-action" disabled={busy || !targetReady || !marketAddress || walletLiquidityShares === BigInt(0)}>Remove liquidity</button>
+              </form>
+            </section>
           </div>
           <RiskNote />
         </div>
