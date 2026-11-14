@@ -7,6 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IMUSDSavingsRate} from "../src/interfaces/IMUSDSavingsRate.sol";
 import {YieldExchange} from "../src/YieldExchange.sol";
 import {YieldMarket} from "../src/YieldMarket.sol";
+import {YieldSeriesFactory} from "../src/YieldSeriesFactory.sol";
 import {PrincipalToken} from "../src/PrincipalToken.sol";
 import {YieldToken} from "../src/YieldToken.sol";
 
@@ -69,98 +70,189 @@ contract FixtureSavingsRate is ERC20, IMUSDSavingsRate {
     }
 }
 
-contract YieldExchangeTest {
-    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    contract YieldSeriesFactoryTest {
+        Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    FixtureMUSD private asset;
-    FixtureSavingsRate private savingsVault;
-    YieldExchange private exchange;
+        function testCreatesAndRegistersSharedMarketForAllUsers() public {
+            vm.chainId(31_611);
+            FixtureMUSD asset = new FixtureMUSD();
+            FixtureSavingsRate vault = new FixtureSavingsRate(address(asset));
+            YieldSeriesFactory factory = new YieldSeriesFactory(address(asset), address(vault));
+            uint64 maturity = uint64(block.timestamp + 30 days);
 
-    function setUp() public {
-        vm.chainId(31_611);
-        asset = new FixtureMUSD();
-        savingsVault = new FixtureSavingsRate(address(asset));
-        exchange = new YieldExchange(address(asset), address(savingsVault), uint64(block.timestamp + 1 days));
-        asset.mint(address(this), 10_000 ether);
-        asset.approve(address(exchange), type(uint256).max);
+            (address exchangeAddress, address marketAddress) = factory.createSeries(maturity);
+            (
+                address[] memory exchanges,
+                address[] memory markets,
+                uint64[] memory maturities,
+                address[] memory creators,
+                uint256 total
+            ) = factory.seriesPage(0, 25);
+
+            require(total == 1 && factory.seriesCount() == 1, "one shared series");
+            require(exchanges[0] == exchangeAddress, "registered exchange");
+            require(markets[0] == marketAddress, "registered market");
+            require(maturities[0] == maturity, "registered maturity");
+            require(creators[0] == address(this), "creator recorded");
+            require(
+                address(YieldExchange(exchangeAddress).principalToken()) != address(0),
+                "PT deployed"
+            );
+            require(
+                address(YieldExchange(exchangeAddress).yieldToken()) != address(0), "YT deployed"
+            );
+            require(
+                address(YieldMarket(marketAddress).principalToken())
+                    == address(YieldExchange(exchangeAddress).principalToken()),
+                "market uses shared PT"
+            );
+            require(factory.exchangeForMaturity(maturity) == exchangeAddress, "maturity lookup");
+        }
+
+        function testCannotCreateDuplicateMaturity() public {
+            vm.chainId(31_611);
+            FixtureMUSD asset = new FixtureMUSD();
+            FixtureSavingsRate vault = new FixtureSavingsRate(address(asset));
+            YieldSeriesFactory factory = new YieldSeriesFactory(address(asset), address(vault));
+            uint64 maturity = uint64(block.timestamp + 30 days);
+
+            factory.createSeries(maturity);
+            vm.expectRevert();
+            factory.createSeries(maturity);
+        }
+
+        function testSeriesPageRejectsUnboundedReads() public {
+            vm.chainId(31_611);
+            FixtureMUSD asset = new FixtureMUSD();
+            FixtureSavingsRate vault = new FixtureSavingsRate(address(asset));
+            YieldSeriesFactory factory = new YieldSeriesFactory(address(asset), address(vault));
+
+            vm.expectRevert();
+            factory.seriesPage(0, 51);
+        }
     }
 
-    function testDepositMintsComplementaryClaimsAndCustodiesRealShares() public {
-        exchange.deposit(100 ether, address(this));
+    contract YieldExchangeTest {
+        Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-        require(exchange.principalDeposited() == 100 ether, "principal accounting");
-        require(PrincipalToken(address(exchange.principalToken())).balanceOf(address(this)) == 100 ether, "PT supply");
-        require(YieldToken(address(exchange.yieldToken())).balanceOf(address(this)) == 100 ether, "YT supply");
-        require(savingsVault.balanceOf(address(exchange)) == 100 ether, "source shares");
-        require(asset.balanceOf(address(exchange)) == 0, "principal must stay in source");
+        FixtureMUSD private asset;
+        FixtureSavingsRate private savingsVault;
+        YieldExchange private exchange;
+
+        function setUp() public {
+            vm.chainId(31_611);
+            asset = new FixtureMUSD();
+            savingsVault = new FixtureSavingsRate(address(asset));
+            exchange = new YieldExchange(
+                address(asset), address(savingsVault), uint64(block.timestamp + 1 days)
+            );
+            asset.mint(address(this), 10_000 ether);
+            asset.approve(address(exchange), type(uint256).max);
+        }
+
+        function testDepositMintsComplementaryClaimsAndCustodiesRealShares() public {
+            exchange.deposit(100 ether, address(this));
+
+            require(exchange.principalDeposited() == 100 ether, "principal accounting");
+            require(
+                PrincipalToken(address(exchange.principalToken())).balanceOf(address(this))
+                    == 100 ether,
+                "PT supply"
+            );
+            require(
+                YieldToken(address(exchange.yieldToken())).balanceOf(address(this)) == 100 ether,
+                "YT supply"
+            );
+            require(savingsVault.balanceOf(address(exchange)) == 100 ether, "source shares");
+            require(asset.balanceOf(address(exchange)) == 0, "principal must stay in source");
+        }
+
+        function testPreviouslyAccruedYieldBelongsToExistingYTHolders() public {
+            exchange.deposit(100 ether, address(this));
+            savingsVault.simulateProtocolYield(address(exchange), 25 ether);
+
+            exchange.deposit(50 ether, address(0xBEEF));
+
+            YieldToken yt = exchange.yieldToken();
+            require(
+                yt.claimableYield(address(this)) == 25 ether, "existing holders receive prior yield"
+            );
+            require(
+                yt.claimableYield(address(0xBEEF)) == 0, "new holders cannot capture prior yield"
+            );
+        }
+
+        function testTransferCheckpointsYieldBeforeOwnershipMoves() public {
+            exchange.deposit(100 ether, address(this));
+            savingsVault.simulateProtocolYield(address(exchange), 10 ether);
+
+            exchange.yieldToken().transfer(address(0xBEEF), 50 ether);
+
+            require(
+                exchange.yieldToken().claimableYield(address(this)) == 10 ether,
+                "seller keeps pre-transfer yield"
+            );
+            require(
+                exchange.yieldToken().claimableYield(address(0xBEEF)) == 0,
+                "buyer starts at transfer checkpoint"
+            );
+        }
+
+        function testMaturitySettlementAllocatesSourceLossToPTAndOnlyRealYieldToYT() public {
+            exchange.deposit(100 ether, address(this));
+            savingsVault.simulateProtocolYield(address(exchange), 10 ether);
+            savingsVault.setWithdrawalBps(8_000);
+            vm.warp(exchange.maturity());
+
+            exchange.settle();
+
+            require(exchange.principalClaim() == 80 ether, "PT claim is capped by recovered assets");
+            require(
+                exchange.yieldToken().claimableYield(address(this)) == 10 ether,
+                "YT receives only realized yield"
+            );
+            require(exchange.yieldToken().claimYield() == 10 ether, "yield payout");
+            require(
+                exchange.redeemPrincipal(100 ether) == 80 ether,
+                "principal loss is reflected in redemption"
+            );
+            require(asset.balanceOf(address(this)) == 9_990 ether, "no value is paid twice");
+        }
+
+        function testSettlementCapturesWithdrawalSurplusForYT() public {
+            exchange.deposit(100 ether, address(this));
+            savingsVault.donateToSource(5 ether);
+            savingsVault.setWithdrawalBps(10_500);
+            vm.warp(exchange.maturity());
+
+            exchange.settle();
+
+            require(exchange.principalClaim() == 100 ether, "PT stays capped at principal");
+            require(
+                exchange.yieldToken().claimableYield(address(this)) == 5 ether,
+                "realized surplus accrues to YT"
+            );
+        }
+
+        function testCannotSettleBeforeMaturity() public {
+            exchange.deposit(1 ether, address(this));
+            vm.expectRevert();
+            exchange.settle();
+        }
+
+        function testConstantProductMarketSupportsLivePTQuotesAndSwaps() public {
+            exchange.deposit(100 ether, address(this));
+            YieldMarket market = new YieldMarket(address(exchange));
+            PrincipalToken pt = exchange.principalToken();
+            asset.approve(address(market), type(uint256).max);
+            pt.approve(address(market), type(uint256).max);
+            market.addLiquidity(address(pt), 100 ether, 100 ether, 1);
+
+            uint256 quoted = market.quote(address(pt), address(asset), 1 ether);
+            require(quoted > 0, "quote exists");
+            uint256 received =
+                market.swapExactIn(address(pt), address(asset), 1 ether, quoted, address(this));
+            require(received == quoted, "swap respects min output");
+            require(pt.balanceOf(address(this)) == received, "PT output delivered");
+        }
     }
-
-    function testPreviouslyAccruedYieldBelongsToExistingYTHolders() public {
-        exchange.deposit(100 ether, address(this));
-        savingsVault.simulateProtocolYield(address(exchange), 25 ether);
-
-        exchange.deposit(50 ether, address(0xBEEF));
-
-        YieldToken yt = exchange.yieldToken();
-        require(yt.claimableYield(address(this)) == 25 ether, "existing holders receive prior yield");
-        require(yt.claimableYield(address(0xBEEF)) == 0, "new holders cannot capture prior yield");
-    }
-
-    function testTransferCheckpointsYieldBeforeOwnershipMoves() public {
-        exchange.deposit(100 ether, address(this));
-        savingsVault.simulateProtocolYield(address(exchange), 10 ether);
-
-        exchange.yieldToken().transfer(address(0xBEEF), 50 ether);
-
-        require(exchange.yieldToken().claimableYield(address(this)) == 10 ether, "seller keeps pre-transfer yield");
-        require(exchange.yieldToken().claimableYield(address(0xBEEF)) == 0, "buyer starts at transfer checkpoint");
-    }
-
-    function testMaturitySettlementAllocatesSourceLossToPTAndOnlyRealYieldToYT() public {
-        exchange.deposit(100 ether, address(this));
-        savingsVault.simulateProtocolYield(address(exchange), 10 ether);
-        savingsVault.setWithdrawalBps(8_000);
-        vm.warp(exchange.maturity());
-
-        exchange.settle();
-
-        require(exchange.principalClaim() == 80 ether, "PT claim is capped by recovered assets");
-        require(exchange.yieldToken().claimableYield(address(this)) == 10 ether, "YT receives only realized yield");
-        require(exchange.yieldToken().claimYield() == 10 ether, "yield payout");
-        require(exchange.redeemPrincipal(100 ether) == 80 ether, "principal loss is reflected in redemption");
-        require(asset.balanceOf(address(this)) == 9_990 ether, "no value is paid twice");
-    }
-
-    function testSettlementCapturesWithdrawalSurplusForYT() public {
-        exchange.deposit(100 ether, address(this));
-        savingsVault.donateToSource(5 ether);
-        savingsVault.setWithdrawalBps(10_500);
-        vm.warp(exchange.maturity());
-
-        exchange.settle();
-
-        require(exchange.principalClaim() == 100 ether, "PT stays capped at principal");
-        require(exchange.yieldToken().claimableYield(address(this)) == 5 ether, "realized surplus accrues to YT");
-    }
-
-    function testCannotSettleBeforeMaturity() public {
-        exchange.deposit(1 ether, address(this));
-        vm.expectRevert();
-        exchange.settle();
-    }
-
-    function testConstantProductMarketSupportsLivePTQuotesAndSwaps() public {
-        exchange.deposit(100 ether, address(this));
-        YieldMarket market = new YieldMarket(address(exchange));
-        PrincipalToken pt = exchange.principalToken();
-        asset.approve(address(market), type(uint256).max);
-        pt.approve(address(market), type(uint256).max);
-        market.addLiquidity(address(pt), 100 ether, 100 ether, 1);
-
-        uint256 quoted = market.quote(address(pt), address(asset), 1 ether);
-        require(quoted > 0, "quote exists");
-        uint256 received = market.swapExactIn(address(pt), address(asset), 1 ether, quoted, address(this));
-        require(received == quoted, "swap respects min output");
-        require(pt.balanceOf(address(this)) == received, "PT output delivered");
-    }
-}

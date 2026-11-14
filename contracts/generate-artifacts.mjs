@@ -10,6 +10,9 @@ const sourceFiles = [
   'contracts/src/YieldToken.sol',
   'contracts/src/YieldExchange.sol',
   'contracts/src/YieldMarket.sol',
+  'contracts/src/YieldExchangeDeployer.sol',
+  'contracts/src/YieldMarketDeployer.sol',
+  'contracts/src/YieldSeriesFactory.sol',
 ]
 const sources = Object.fromEntries(
   sourceFiles.map((file) => [file, { content: readFileSync(path.join(projectRoot, file), 'utf8') }]),
@@ -45,6 +48,9 @@ const artifacts = {}
 for (const [source, name] of [
   ['contracts/src/YieldExchange.sol', 'YieldExchange'],
   ['contracts/src/YieldMarket.sol', 'YieldMarket'],
+  ['contracts/src/YieldExchangeDeployer.sol', 'YieldExchangeDeployer'],
+  ['contracts/src/YieldMarketDeployer.sol', 'YieldMarketDeployer'],
+  ['contracts/src/YieldSeriesFactory.sol', 'YieldSeriesFactory'],
 ]) {
   const contract = output.contracts[source][name]
   artifacts[name] = {

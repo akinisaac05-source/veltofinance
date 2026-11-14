@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccount, useChainId, usePublicClient, useReadContract, useWalletClient } from 'wagmi'
 import {
@@ -13,20 +13,21 @@ import {
   type Hex,
 } from 'viem'
 import artifacts from '@/lib/deployment-artifacts.json'
-import { MEZO_TESTNET_CHAIN_ID, MUSD_ADDRESS, SMUSD_VAULT_ADDRESS, mezoTestnet } from '@/lib/mezo'
+import { MEZO_TESTNET_CHAIN_ID, MUSD_ADDRESS, SMUSD_VAULT_ADDRESS, YIELD_SERIES_FACTORY_ADDRESS, mezoTestnet } from '@/lib/mezo'
 
-export type WorkspaceView = 'Markets' | 'Trade' | 'Mint' | 'Portfolio' | 'Redeem' | 'Deploy'
+export type WorkspaceView = 'Markets' | 'Trade' | 'Mint' | 'Portfolio' | 'Redeem' | 'Create'
 
 const exchangeAbi = artifacts.YieldExchange.abi as Abi
 const marketAbi = artifacts.YieldMarket.abi as Abi
-const exchangeBytecode = artifacts.YieldExchange.bytecode as Hex
-const marketBytecode = artifacts.YieldMarket.bytecode as Hex
+const factoryAbi = artifacts.YieldSeriesFactory.abi as Abi
+const factoryBytecode = artifacts.YieldSeriesFactory.bytecode as Hex
 const yieldTokenAbi = [
   ...erc20Abi,
   { type: 'function', name: 'claimYield', stateMutability: 'nonpayable', inputs: [], outputs: [{ name: 'amount', type: 'uint256' }] },
   { type: 'function', name: 'claimableYield', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: 'amount', type: 'uint256' }] },
 ] as Abi
 const zeroAddress = '0x0000000000000000000000000000000000000000' as Address
+const factoryPageSize = 25
 
 function asAddress(value: unknown): Address | undefined {
   return typeof value === 'string' && isAddress(value) ? value : undefined
@@ -78,11 +79,9 @@ export function ProtocolWorkspace({
   view: WorkspaceView
   onNavigate: (view: WorkspaceView) => void
 }) {
-  const [exchangeAddress, setExchangeAddress] = useState<Address>()
-  const [marketAddress, setMarketAddress] = useState<Address>()
+  const [factoryAddress, setFactoryAddress] = useState<Address | undefined>(YIELD_SERIES_FACTORY_ADDRESS)
+  const [selectedSeriesIndex, setSelectedSeriesIndex] = useState(-1)
   const [maturityInput, setMaturityInput] = useState('')
-  const [attachExchangeInput, setAttachExchangeInput] = useState('')
-  const [attachMarketInput, setAttachMarketInput] = useState('')
   const [mintAmount, setMintAmount] = useState('')
   const [tradeAmount, setTradeAmount] = useState('')
   const [assetLiquidity, setAssetLiquidity] = useState('')
@@ -99,27 +98,46 @@ export function ProtocolWorkspace({
   const publicClient = usePublicClient({ chainId: MEZO_TESTNET_CHAIN_ID })
   const queryClient = useQueryClient()
   const isTargetChain = chainId === MEZO_TESTNET_CHAIN_ID
-  const exchangeRef = exchangeAddress ?? zeroAddress
-  const marketRef = marketAddress ?? zeroAddress
   const accountRef = address ?? zeroAddress
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    setExchangeAddress(asAddress(params.get('exchange')))
-    setMarketAddress(asAddress(params.get('market')))
-  }, [])
+  const factorySeriesCountRead = useReadContract({
+    address: factoryAddress ?? zeroAddress,
+    abi: factoryAbi,
+    functionName: 'seriesCount',
+    query: { enabled: Boolean(factoryAddress) },
+  })
+  const totalSeriesCount = typeof factorySeriesCountRead.data === 'bigint' ? Number(factorySeriesCountRead.data) : 0
+  const activeSeriesIndex = selectedSeriesIndex >= 0
+    ? Math.min(selectedSeriesIndex, Math.max(totalSeriesCount - 1, 0))
+    : Math.max(totalSeriesCount - 1, 0)
+  const seriesPageStart = Math.floor(activeSeriesIndex / factoryPageSize) * factoryPageSize
+  const factorySeriesRead = useReadContract({
+    address: factoryAddress ?? zeroAddress,
+    abi: factoryAbi,
+    functionName: 'seriesPage',
+    args: [BigInt(seriesPageStart), BigInt(factoryPageSize)],
+    query: { enabled: Boolean(factoryAddress) },
+  })
+  const seriesListings = useMemo(() => {
+    const result = factorySeriesRead.data
+    if (!Array.isArray(result)) return []
+    const [exchanges, markets, maturities, creators] = result
+    if (!Array.isArray(exchanges) || !Array.isArray(markets) || !Array.isArray(maturities) || !Array.isArray(creators)) return []
 
-  const updateAddresses = (nextExchange?: Address, nextMarket?: Address) => {
-    setExchangeAddress(nextExchange)
-    setMarketAddress(nextMarket)
-    const params = new URLSearchParams(window.location.search)
-    if (nextExchange) params.set('exchange', nextExchange)
-    else params.delete('exchange')
-    if (nextMarket) params.set('market', nextMarket)
-    else params.delete('market')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
-  }
+    return exchanges.flatMap((exchange, index) => {
+      const exchangeAddress = asAddress(exchange)
+      const marketAddress = asAddress(markets[index])
+      const maturity = maturities[index]
+      const creator = asAddress(creators[index])
+      if (!exchangeAddress || !marketAddress || typeof maturity !== 'bigint') return []
+      return [{ index: seriesPageStart + index, exchange: exchangeAddress, market: marketAddress, maturity, creator }]
+    })
+  }, [factorySeriesRead.data, seriesPageStart])
+  const activeSeries = seriesListings.find((series) => series.index === activeSeriesIndex)
+  const exchangeAddress = activeSeries?.exchange
+  const marketAddress = activeSeries?.market
+  const exchangeRef = exchangeAddress ?? zeroAddress
+  const marketRef = marketAddress ?? zeroAddress
 
   const vaultName = useReadContract({
     address: SMUSD_VAULT_ADDRESS,
@@ -293,7 +311,7 @@ export function ProtocolWorkspace({
   const isSettled = settledRead.data === true
   const targetReady = isConnected && isTargetChain && Boolean(address)
   const sourceVerified = vaultName.data === 'MUSD Savings Rate' && vaultSymbol.data === 'sMUSD' && typeof vaultSupply.data === 'bigint'
-  const canDeploy = targetReady && sourceVerified
+  const canCreateSeries = targetReady && sourceVerified && Boolean(factoryAddress)
   const selectedPool = tradeToken === 'PT' ? ptPool.data : ytPool.data
   const selectedPoolParts = Array.isArray(selectedPool) ? selectedPool : []
   const reserveAsset = typeof selectedPoolParts[0] === 'bigint' ? selectedPoolParts[0] : BigInt(0)
@@ -334,67 +352,65 @@ export function ProtocolWorkspace({
     }
   }
 
-  const deployProtocol = async (event: FormEvent<HTMLFormElement>) => {
+  const deployFactory = async () => {
+    setBusy(true)
+    setStatus('')
+    try {
+      const { account, client } = ensureWallet()
+      if (!sourceVerified) throw new Error('The configured sMUSD vault has not passed its live on-chain identity checks.')
+      const hash = await client.deployContract({
+        account,
+        chain: mezoTestnet,
+        abi: factoryAbi,
+        bytecode: factoryBytecode,
+        args: [MUSD_ADDRESS, SMUSD_VAULT_ADDRESS],
+      })
+      const receipt = await waitForTransaction(hash, 'Shared factory deployment')
+      if (!receipt.contractAddress) throw new Error('The factory deployment receipt did not include a contract address.')
+      setFactoryAddress(receipt.contractAddress)
+      setStatus('Shared factory deployed. Copy its address below, then set NEXT_PUBLIC_YIELD_SERIES_FACTORY_ADDRESS to make the same factory available to every visitor.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Factory deployment could not be completed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createSeries = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setBusy(true)
     setStatus('')
     try {
       const { account, client } = ensureWallet()
+      if (!factoryAddress) throw new Error('The shared series factory is not configured for this app.')
       if (!sourceVerified) throw new Error('The configured sMUSD vault has not passed its live on-chain identity checks.')
       const maturityTimestamp = Math.floor(new Date(maturityInput).getTime() / 1000)
       if (!Number.isFinite(maturityTimestamp) || maturityTimestamp <= Math.floor(Date.now() / 1000)) {
         throw new Error('Choose a future maturity date and time.')
       }
 
-      setStatus('Confirm the PT/YT series deployment in your wallet.')
-      const exchangeHash = await client.deployContract({
+      const hash = await client.writeContract({
         account,
         chain: mezoTestnet,
-        abi: exchangeAbi,
-        bytecode: exchangeBytecode,
-        args: [MUSD_ADDRESS, SMUSD_VAULT_ADDRESS, BigInt(maturityTimestamp)],
-      } as never)
-      const exchangeReceipt = await waitForTransaction(exchangeHash, 'PT/YT series deployment')
-      const nextExchange = exchangeReceipt.contractAddress
-      if (!nextExchange) throw new Error('The exchange deployment receipt did not include a contract address.')
-      updateAddresses(nextExchange)
-
-      setStatus('Exchange deployed. Confirm the PT/YT market deployment in your wallet.')
-      const marketHash = await client.deployContract({
-        account,
-        chain: mezoTestnet,
-        abi: marketAbi,
-        bytecode: marketBytecode,
-        args: [nextExchange],
-      } as never)
-      const marketReceipt = await waitForTransaction(marketHash, 'PT/YT market deployment')
-      const nextMarket = marketReceipt.contractAddress
-      if (!nextMarket) throw new Error('The market deployment receipt did not include a contract address.')
-      updateAddresses(nextExchange, nextMarket)
-      setStatus('PT/YT series and both live market pools are deployed on Mezo Testnet.')
-      await invalidateChainData()
+        address: factoryAddress,
+        abi: factoryAbi,
+        functionName: 'createSeries',
+        args: [BigInt(maturityTimestamp)],
+      })
+      await waitForTransaction(hash, 'Shared PT/YT market creation')
+      setSelectedSeriesIndex(-1)
+      setMaturityInput('')
+      setStatus('Shared maturity created and registered. Every app user can now select this market.')
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Deployment could not be completed.')
+      setStatus(error instanceof Error ? error.message : 'Market creation could not be completed.')
     } finally {
       setBusy(false)
     }
   }
 
-  const attachContracts = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const nextExchange = asAddress(attachExchangeInput.trim())
-    const nextMarket = attachMarketInput.trim() ? asAddress(attachMarketInput.trim()) : undefined
-    if (!nextExchange || (attachMarketInput.trim() && !nextMarket)) {
-      setStatus('Enter valid 0x contract addresses.')
-      return
-    }
-    updateAddresses(nextExchange, nextMarket)
-    setStatus('Contract addresses loaded from Mezo Testnet.')
-  }
-
   const mint = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!exchangeAddress) return setStatus('Deploy or attach a PT/YT series first.')
+    if (!exchangeAddress) return setStatus('Select a registered PT/YT market first.')
     let parsed: bigint
     try {
       parsed = parseUnits(mintAmount, 18)
@@ -460,7 +476,7 @@ export function ProtocolWorkspace({
 
   const addLiquidity = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!marketAddress || !tokenAddress) return setStatus('Deploy or attach a market and series first.')
+    if (!marketAddress || !tokenAddress) return setStatus('Select a registered PT/YT market first.')
     let assetAmount: bigint
     let tokenAmount: bigint
     try {
@@ -607,14 +623,12 @@ export function ProtocolWorkspace({
     })
   }
 
-  const submitAttach = (event: FormEvent<HTMLFormElement>) => attachContracts(event)
-
   return (
     <section className="workspace-panel" aria-live="polite">
       <div className="workspace-toolbar">
         <div>
           <span className="eyebrow">LIVE MEZO TESTNET</span>
-          <h2>{view === 'Deploy' ? 'Deploy a maturity' : view}</h2>
+          <h2>{view === 'Create' ? 'Create a shared maturity' : view}</h2>
         </div>
         <div className={`chain-status ${isTargetChain ? 'chain-ok' : 'chain-warn'}`}>
           <span className="network-indicator" />{isConnected ? (isTargetChain ? 'Wallet on Mezo Testnet' : 'Switch to Mezo Testnet') : 'Wallet not connected'}
@@ -637,9 +651,36 @@ export function ProtocolWorkspace({
             <AddressText label="MUSD token" value={MUSD_ADDRESS} />
           </div>
 
+          {seriesListings.length > 0 && (
+            <div className="series-directory" aria-label="Available maturity markets">
+              {seriesListings.map((series) => (
+                <button
+                  key={series.exchange}
+                  type="button"
+                  className={`series-option ${activeSeriesIndex === series.index ? 'series-option-active' : ''}`}
+                  aria-pressed={activeSeriesIndex === series.index}
+                  onClick={() => setSelectedSeriesIndex(series.index)}
+                >
+                  <span className="eyebrow">MATURITY {series.index + 1}</span>
+                  <strong>{new Date(Number(series.maturity) * 1000).toLocaleDateString()}</strong>
+                  <small>PT-MUSD / YT-MUSD</small>
+                </button>
+              ))}
+            </div>
+          )}
+          {totalSeriesCount > factoryPageSize && (
+            <div className="series-pagination" aria-label="Market pages">
+              <span>Showing {seriesPageStart + 1}–{Math.min(seriesPageStart + seriesListings.length, totalSeriesCount)} of {totalSeriesCount}</span>
+              <div>
+                <button type="button" className="secondary-action" onClick={() => setSelectedSeriesIndex(Math.min(totalSeriesCount - 1, seriesPageStart + factoryPageSize))} disabled={seriesPageStart + factoryPageSize >= totalSeriesCount}>Newer</button>
+                <button type="button" className="secondary-action" onClick={() => setSelectedSeriesIndex(Math.max(0, seriesPageStart - factoryPageSize))} disabled={seriesPageStart === 0}>Older</button>
+              </div>
+            </div>
+          )}
+
           {exchangeAddress ? (
             <div className="series-card">
-              <div className="section-heading"><div><span className="eyebrow">MATURITY SERIES</span><h3>PT-MUSD / YT-MUSD</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : isMature ? 'Maturity reached' : 'Open'}</span></div>
+              <div className="section-heading"><div><span className="eyebrow">SHARED MATURITY MARKET</span><h3>PT-MUSD / YT-MUSD</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : isMature ? 'Maturity reached' : 'Open'}</span></div>
               <div className="source-metrics">
                 <div><span>Maturity</span><strong>{maturitySeconds ? new Date(Number(maturitySeconds) * 1000).toLocaleString() : 'Loading…'}</strong></div>
                 <div><span>Deposited principal</span><strong>{amount(principalDepositedRead.data)} MUSD</strong></div>
@@ -661,41 +702,45 @@ export function ProtocolWorkspace({
           ) : (
             <div className="empty-live-card">
               <div className="empty-live-mark">+</div>
-              <span className="eyebrow">NO LOCAL SERIES ADDRESS</span>
-              <h3>Launch the first maturity</h3>
-              <p>The sMUSD source and MUSD underlying are read directly from Mezo Testnet. Deploy a one-maturity PT/YT exchange and its PT/YT liquidity pools with your wallet.</p>
-              <button className="primary-action" onClick={() => onNavigate('Deploy')}>Deploy first series</button>
+              <span className="eyebrow">{factoryAddress ? 'SHARED FACTORY' : 'FACTORY NOT CONFIGURED'}</span>
+              <h3>{factoryAddress ? 'No maturity markets yet' : 'Market directory is not connected'}</h3>
+              <p>{factoryAddress ? 'Markets created through the shared factory appear here for every trader. Creating a market is a separate permissionless action; trading and minting never deploy contracts.' : 'The protocol operator must deploy and configure one shared factory. Traders use its registered markets; individual users do not deploy contracts to trade.'}</p>
+              {factoryAddress && <button className="primary-action" onClick={() => onNavigate('Create')}>Create a maturity market</button>}
             </div>
           )}
           <RiskNote />
         </div>
       )}
 
-      {view === 'Deploy' && (
-        <div className="workspace-content deploy-grid">
+      {view === 'Create' && (
+        <div className="workspace-content two-column-workspace">
           <div className="form-card">
-            <span className="eyebrow">WALLET-SIGNED DEPLOYMENT</span>
-            <h3>Deploy a PT/YT maturity</h3>
-            <p>Deploys the custody/settlement exchange, its PT and YT tokens, and a market contract with independent PT/MUSD and YT/MUSD pools. Each deployment is a wallet transaction.</p>
-            <form onSubmit={deployProtocol} className="protocol-form">
-              <label htmlFor="maturity">Maturity date and time</label>
-              <input id="maturity" type="datetime-local" value={maturityInput} onChange={(event) => setMaturityInput(event.target.value)} required />
-              <button className="primary-action" disabled={busy || !canDeploy || !maturityInput}>{busy ? 'Waiting for wallet…' : 'Deploy PT/YT + market'}</button>
-            </form>
-            {!isConnected && <p className="field-hint">Connect an EVM wallet to deploy. The app never requests or stores a private key.</p>}
+            <span className="eyebrow">PERMISSIONLESS MARKET FACTORY</span>
+            <h3>Create a shared PT/YT maturity</h3>
+            <p>Anyone can create a market through the configured factory. It deploys the PT/YT series and market once, records both addresses on-chain, and makes the same market available to every app user. Traders do not deploy contracts when they mint or swap.</p>
+            {!factoryAddress ? (
+              <div className="protocol-form">
+                <p className="field-hint">Deploy the shared factory once with the protocol operator wallet, then copy its address below and set NEXT_PUBLIC_YIELD_SERIES_FACTORY_ADDRESS in project Vars. This makes every visitor use the same factory.</p>
+                <button type="button" className="primary-action" onClick={deployFactory} disabled={busy || !targetReady || !sourceVerified}>{busy ? 'Waiting for wallet…' : 'Deploy shared factory once'}</button>
+              </div>
+            ) : (
+              <form onSubmit={createSeries} className="protocol-form">
+                <label htmlFor="maturity">Maturity date and time</label>
+                <input id="maturity" type="datetime-local" value={maturityInput} onChange={(event) => setMaturityInput(event.target.value)} required />
+                <button className="primary-action" disabled={busy || !canCreateSeries || !maturityInput}>{busy ? 'Waiting for wallet…' : 'Create shared market'}</button>
+              </form>
+            )}
+            {!isConnected && <p className="field-hint">Connect a wallet to create a market. The creator pays deployment gas; no private key is requested or stored by the app.</p>}
             {isConnected && !isTargetChain && <p className="field-hint">Switch your wallet network to Mezo Testnet (chain ID 31611).</p>}
+            {isConnected && isTargetChain && !sourceVerified && <p className="field-hint">Waiting for the app to verify the live sMUSD vault before enabling creation.</p>}
           </div>
-          <div className="form-card attach-card">
-            <span className="eyebrow">EXISTING DEPLOYMENT</span>
-            <h3>Load contract addresses</h3>
-            <p>Contract addresses are kept in this URL so the market can be reopened without a server or browser storage.</p>
-            <form onSubmit={submitAttach} className="protocol-form">
-              <label htmlFor="exchange-address">Yield exchange</label>
-              <input id="exchange-address" value={attachExchangeInput} onChange={(event) => setAttachExchangeInput(event.target.value)} placeholder="0x…" autoComplete="off" />
-              <label htmlFor="market-address">Yield market</label>
-              <input id="market-address" value={attachMarketInput} onChange={(event) => setAttachMarketInput(event.target.value)} placeholder="0x… (optional)" autoComplete="off" />
-              <button className="secondary-action" type="submit">Load addresses</button>
-            </form>
+          <div className="info-card">
+            <span className="eyebrow">SHARED MARKET LIFECYCLE</span>
+            <h3>One market, many traders</h3>
+            <div className="token-explainer"><b>1</b><span>A creator submits one maturity to the factory and pays the deployment gas once.</span></div>
+            <div className="token-explainer"><b>2</b><span>The factory registers the exchange and market addresses on-chain.</span></div>
+            <div className="token-explainer"><b>3</b><span>Everyone selects that same registered market to mint, trade, provide liquidity, and redeem.</span></div>
+            {factoryAddress && <AddressText label="Shared factory" value={factoryAddress} />}
           </div>
           <RiskNote />
         </div>
@@ -713,7 +758,7 @@ export function ProtocolWorkspace({
               <div className="amount-input"><input id="mint-amount" inputMode="decimal" value={mintAmount} onChange={(event) => setMintAmount(event.target.value)} placeholder="0.00" /><span>MUSD</span></div>
               <button className="primary-action" disabled={busy || !targetReady || !exchangeAddress}>{busy ? 'Waiting for wallet…' : 'Approve and mint PT + YT'}</button>
             </form>
-            {!exchangeAddress && <p className="field-hint">Deploy or load a maturity series before minting.</p>}
+            {!exchangeAddress && <p className="field-hint">Select a registered maturity market before minting.</p>}
             {exchangeAddress && isMature && <p className="field-hint">This series has reached maturity; new deposits are closed.</p>}
           </div>
           <div className="info-card">
@@ -737,8 +782,8 @@ export function ProtocolWorkspace({
             <BalanceCard label="Claimable yield" value={amount(userYtClaimable.data)} suffix="MUSD" />
           </div>
           <div className="series-card">
-            <div className="section-heading"><div><span className="eyebrow">YOUR SERIES</span><h3>PT-MUSD / YT-MUSD</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : exchangeAddress ? 'Active' : 'No series loaded'}</span></div>
-            <p className="muted-copy">{exchangeAddress ? 'Balances and contract state are read from Mezo Testnet. Your address is never sent to an application server.' : 'Load or deploy a maturity series to see its on-chain balances here.'}</p>
+            <div className="section-heading"><div><span className="eyebrow">YOUR SERIES</span><h3>PT-MUSD / YT-MUSD</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : exchangeAddress ? 'Active' : 'No market selected'}</span></div>
+            <p className="muted-copy">{exchangeAddress ? 'Balances and contract state are read from Mezo Testnet. Your address is never sent to an application server.' : 'Select a market listed in the shared factory to see your on-chain balances here.'}</p>
             <AddressText label="Wallet" value={address} />
             <AddressText label="Exchange" value={exchangeAddress} />
             <div className="action-row">
@@ -754,9 +799,9 @@ export function ProtocolWorkspace({
         <div className="workspace-content two-column-workspace">
           <div className="form-card">
             <span className="eyebrow">MATURITY SETTLEMENT</span>
-            <h3>{!exchangeAddress ? 'Load a maturity series' : isSettled ? 'Claims are available' : isMature ? 'Settle this series' : 'Not yet at maturity'}</h3>
+            <h3>{!exchangeAddress ? 'No market selected' : isSettled ? 'Claims are available' : isMature ? 'Settle this series' : 'Not yet at maturity'}</h3>
             <p>Anyone can finalize the series after maturity. PT redemption is limited to actual MUSD recovered from the source; YT can claim only its recorded share of realized yield.</p>
-            <div className="balance-line"><span>Maturity</span><strong>{maturitySeconds ? new Date(Number(maturitySeconds) * 1000).toLocaleString() : 'No series loaded'}</strong></div>
+            <div className="balance-line"><span>Maturity</span><strong>{maturitySeconds ? new Date(Number(maturitySeconds) * 1000).toLocaleString() : 'No market selected'}</strong></div>
             <div className="balance-line"><span>Recovered principal</span><strong>{isSettled ? `${amount(principalClaimRead.data)} MUSD` : 'Pending settlement'}</strong></div>
             <form onSubmit={(event) => { event.preventDefault(); void settle() }} className="protocol-form">
               <button className="primary-action" disabled={busy || !targetReady || !exchangeAddress || !isMature || isSettled}>{busy ? 'Waiting for wallet…' : isSettled ? 'Series settled' : 'Settle maturity'}</button>

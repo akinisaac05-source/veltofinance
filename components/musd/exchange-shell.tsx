@@ -17,13 +17,13 @@ import {
 import { NetworkStatus, WalletButton } from './wallet-provider'
 import { ProtocolWorkspace, type WorkspaceView } from './protocol-workspace'
 
-const navigation: { label: WorkspaceView; icon: typeof BarChart3 }[] = [
-  { label: 'Markets', icon: BarChart3 },
-  { label: 'Trade', icon: ArrowDownUp },
-  { label: 'Mint', icon: Coins },
-  { label: 'Portfolio', icon: LayoutDashboard },
-  { label: 'Redeem', icon: Wallet },
-  { label: 'Deploy', icon: Rocket },
+const navigation: { label: string; view: WorkspaceView; icon: typeof BarChart3 }[] = [
+  { label: 'Markets', view: 'Markets', icon: BarChart3 },
+  { label: 'Trade', view: 'Trade', icon: ArrowDownUp },
+  { label: 'Mint', view: 'Mint', icon: Coins },
+  { label: 'Portfolio', view: 'Portfolio', icon: LayoutDashboard },
+  { label: 'Redeem', view: 'Redeem', icon: Wallet },
+  { label: 'Create market', view: 'Create', icon: Rocket },
 ]
 
 export function ExchangeShell() {
@@ -63,16 +63,16 @@ export function ExchangeShell() {
         </button>
         <div className="nav-caption">PROTOCOL</div>
         <nav aria-label="Main navigation">
-          {navigation.map(({ label, icon: Icon }) => (
+          {navigation.map(({ label, view, icon: Icon }) => (
             <button
-              key={label}
-              className={`nav-item ${activeView === label ? 'nav-active' : ''}`}
-              aria-current={activeView === label ? 'page' : undefined}
-              onClick={() => navigate(label)}
+              key={view}
+              className={`nav-item ${activeView === view ? 'nav-active' : ''}`}
+              aria-current={activeView === view ? 'page' : undefined}
+              onClick={() => navigate(view)}
             >
               <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
               <span>{label}</span>
-              {activeView === label && <span className="nav-dot" aria-hidden="true" />}
+              {activeView === view && <span className="nav-dot" aria-hidden="true" />}
             </button>
           ))}
         </nav>
@@ -101,7 +101,7 @@ export function ExchangeShell() {
         <section className="page-content" aria-label={`${activeView} workspace`}>
           <div className="eyebrow"><span className="live-indicator" />MEZO TESTNET <span className="eyebrow-divider">/</span> MUSD YIELD EXCHANGE</div>
           <div className="heading-row">
-            <div><h1>{activeView === 'Deploy' ? 'Deploy a maturity' : activeView}</h1><p className="page-subtitle">Live MUSD and sMUSD contracts on Mezo Testnet.</p></div>
+            <div><h1>{activeView === 'Create' ? 'Create Market' : activeView}</h1><p className="page-subtitle">Shared PT/YT maturity markets on Mezo Testnet.</p></div>
             <div className="maturity-chip"><span className="chip-glyph" aria-hidden="true">◷</span><span><small>NETWORK</small><strong>Chain 31611</strong></span></div>
           </div>
           <ProtocolWorkspace view={activeView} onNavigate={navigate} />
