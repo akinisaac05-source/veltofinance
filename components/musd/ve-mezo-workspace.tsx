@@ -34,6 +34,11 @@ function amountInput(value: string) {
   }
 }
 
+function formatInputAmount(value: bigint) {
+  const formatted = formatUnits(value, 18)
+  return formatted.includes('.') ? formatted.replace(/0+$/, '').replace(/\.$/, '') : formatted
+}
+
 function errorMessage(error: unknown) {
   if (!(error instanceof Error)) return 'Transaction could not be completed.'
   const message = error.message.split('\n')[0]
@@ -438,6 +443,28 @@ export function VeMezoWorkspace({ view = 'Markets' }: { view?: VeMezoView }) {
     })
   }
 
+  const updateLiquidityMezo = (value: string) => {
+    setLiquidityMezo(value)
+    if (!value.trim()) return setLiquidityToken('')
+    try {
+      const mezoAmount = parseUnits(value, 18)
+      setLiquidityToken(reserveMezo > BigInt(0) && reserveToken > BigInt(0) ? formatInputAmount((mezoAmount * reserveToken) / reserveMezo) : '')
+    } catch {
+      setLiquidityToken('')
+    }
+  }
+
+  const updateLiquidityToken = (value: string) => {
+    setLiquidityToken(value)
+    if (!value.trim()) return setLiquidityMezo('')
+    try {
+      const tokenAmount = parseUnits(value, 18)
+      setLiquidityMezo(reserveMezo > BigInt(0) && reserveToken > BigInt(0) ? formatInputAmount((tokenAmount * reserveMezo) / reserveToken) : '')
+    } catch {
+      setLiquidityMezo('')
+    }
+  }
+
   const addLiquidity = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!marketAddress || !tokenAddress) return setStatus('Create a tranche before adding market liquidity.')
@@ -507,12 +534,12 @@ export function VeMezoWorkspace({ view = 'Markets' }: { view?: VeMezoView }) {
 
         {view === 'Liquidity' && <div className="form-card liquidity-card">
           <div className="section-heading"><div><span className="eyebrow">LIQUIDITY</span><h3>Manage your pool position</h3></div></div>
-          {positionIds.length > 1 && <div className="protocol-form"><label htmlFor="ve-liquidity-position">Market position</label><select id="ve-liquidity-position" value={selectedId.toString()} onChange={(event) => setSelectedNft(event.target.value)}>{positionIds.map((id) => <option key={id.toString()} value={id.toString()}>Token #{id.toString()}</option>)}</select></div>}
+          {positionIds.length > 1 && <div className="protocol-form"><label htmlFor="ve-liquidity-position">Market position</label><select id="ve-liquidity-position" value={selectedId.toString()} onChange={(event) => { setSelectedNft(event.target.value); setLiquidityMezo(''); setLiquidityToken('') }}>{positionIds.map((id) => <option key={id.toString()} value={id.toString()}>Token #{id.toString()}</option>)}</select></div>}
           {!seriesExists || !isDeposited || !marketAddress || !tokenAddress ? <p className="field-hint">A deposited PT/YT market is required before adding liquidity.</p> : <>
-            <div className="segmented-control"><button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => setTradeToken('PT')}>PT pool</button><button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => setTradeToken('YT')}>YT pool</button></div>
+            <div className="segmented-control"><button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => { setTradeToken('PT'); setLiquidityMezo(''); setLiquidityToken('') }}>PT pool</button><button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => { setTradeToken('YT'); setLiquidityMezo(''); setLiquidityToken('') }}>YT pool</button></div>
             <div className="market-stats"><div><span>Your LP shares</span><strong>{displayAmount(lpBalanceRead.data)}</strong></div><div><span>Pool shares</span><strong>{displayAmount(liquiditySupply)}</strong></div></div>
             <div className="two-column-workspace">
-              <form className="protocol-form" onSubmit={addLiquidity}><label htmlFor="ve-lp-mezo">MEZO amount</label><input id="ve-lp-mezo" inputMode="decimal" value={liquidityMezo} onChange={(event) => setLiquidityMezo(event.target.value)} placeholder="0.00" /><label htmlFor="ve-lp-token">{tradeToken}-veMEZO amount</label><input id="ve-lp-token" inputMode="decimal" value={liquidityToken} onChange={(event) => setLiquidityToken(event.target.value)} placeholder="0.00" /><button className="primary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Add liquidity'}</button></form>
+              <form className="protocol-form" onSubmit={addLiquidity}><label htmlFor="ve-lp-mezo">MEZO amount</label><input id="ve-lp-mezo" inputMode="decimal" value={liquidityMezo} onChange={(event) => updateLiquidityMezo(event.target.value)} placeholder="0.00" /><label htmlFor="ve-lp-token">{tradeToken}-veMEZO amount</label><input id="ve-lp-token" inputMode="decimal" value={liquidityToken} onChange={(event) => updateLiquidityToken(event.target.value)} placeholder="0.00" /><p className="field-hint">The paired amount follows the selected pool&apos;s live reserve ratio. For an empty pool, enter both amounts manually.</p><button className="primary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Add liquidity'}</button></form>
               <form className="protocol-form" onSubmit={removeLiquidity}><label htmlFor="ve-lp-shares">LP shares to remove</label><input id="ve-lp-shares" inputMode="decimal" value={removeShares} onChange={(event) => setRemoveShares(event.target.value)} placeholder="0.00" /><div className="balance-line"><span>Available</span><strong>{displayAmount(lpBalanceRead.data)} shares</strong></div><button className="secondary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Remove liquidity'}</button></form>
             </div>
           </>}

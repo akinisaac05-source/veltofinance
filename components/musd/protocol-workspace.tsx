@@ -597,6 +597,28 @@ export function ProtocolWorkspace({
     setTokenLiquidity(inputAmount(tokenAmount))
   }
 
+  const updateLiquidityAsset = (value: string) => {
+    setAssetLiquidity(value)
+    setAddLiquidityPercent(0)
+    try {
+      const assetAmount = parseUnits(value, 18)
+      setTokenLiquidity(reserveAsset > BigInt(0) && reserveToken > BigInt(0) ? inputAmount((assetAmount * reserveToken) / reserveAsset) : '')
+    } catch {
+      setTokenLiquidity('')
+    }
+  }
+
+  const updateLiquidityToken = (value: string) => {
+    setTokenLiquidity(value)
+    setAddLiquidityPercent(0)
+    try {
+      const tokenAmount = parseUnits(value, 18)
+      setAssetLiquidity(reserveAsset > BigInt(0) && reserveToken > BigInt(0) ? inputAmount((tokenAmount * reserveAsset) / reserveToken) : '')
+    } catch {
+      setAssetLiquidity('')
+    }
+  }
+
   const applyRemoveLiquidityPercent = (value: number) => {
     const percent = Math.min(100, Math.max(0, value))
     setRemoveLiquidityPercent(percent)
@@ -1021,9 +1043,10 @@ export function ProtocolWorkspace({
               </div>
               <form onSubmit={addLiquidity} className="protocol-form">
                 <div className="liquidity-input-label"><label htmlFor="liquidity-musd">MUSD deposit</label><span>Available: {amount(musdBalance.data)} MUSD</span></div>
-                <div className="amount-input"><input id="liquidity-musd" inputMode="decimal" value={assetLiquidity} onChange={(event) => { setAssetLiquidity(event.target.value); setAddLiquidityPercent(0) }} placeholder="0.00" /><span>MUSD</span></div>
+                <div className="amount-input"><input id="liquidity-musd" inputMode="decimal" value={assetLiquidity} onChange={(event) => updateLiquidityAsset(event.target.value)} placeholder="0.00" /><span>MUSD</span></div>
                 <div className="liquidity-input-label"><label htmlFor="liquidity-token">{tradeToken}-MUSD deposit</label><span>Available: {amount(selectedWalletTokenBalance)} {tradeToken}-MUSD</span></div>
-                <div className="amount-input"><input id="liquidity-token" inputMode="decimal" value={tokenLiquidity} onChange={(event) => { setTokenLiquidity(event.target.value); setAddLiquidityPercent(0) }} placeholder="0.00" /><span>{tradeToken}-MUSD</span></div>
+                <div className="amount-input"><input id="liquidity-token" inputMode="decimal" value={tokenLiquidity} onChange={(event) => updateLiquidityToken(event.target.value)} placeholder="0.00" /><span>{tradeToken}-MUSD</span></div>
+                <p className="field-hint">The paired amount follows the selected pool&apos;s live reserve ratio. For an empty pool, enter both amounts manually.</p>
                 <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !tokenAddress}>Approve and add liquidity</button>
               </form>
             </section>
