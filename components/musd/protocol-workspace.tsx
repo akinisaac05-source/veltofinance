@@ -1054,30 +1054,32 @@ export function ProtocolWorkspace({
                 </div>
               </div>
               <div className="lp-economics-list">
-                <div className="balance-line"><span>LP share of {tradeToken} pool</span><strong>{formatSharePercent(tokenLiquidityBalance.data, liquiditySupply)}</strong></div>
-                <div className="balance-line"><span>Realized swap fees</span><strong>Not tracked per LP</strong></div>
-                <div className="balance-line"><span>Realized YT-pool yield</span><strong>{tradeToken !== 'YT' ? 'Not applicable to PT pool' : ytLiquidityYieldClaimable.isError ? 'Unavailable' : ytLiquidityYieldClaimable.data === undefined ? isConnected ? 'Loading…' : 'Connect wallet to view' : ytLiquidityYieldClaimable.data === BigInt(0) ? 'None realized yet' : `${amount(ytLiquidityYieldClaimable.data)} MUSD claimable`}</strong></div>
-                <div className="balance-line"><span>Incentives</span><strong>None configured</strong></div>
+                <div className="lp-economics-item">
+                  <div className="lp-economics-heading"><span>Share of current pool reserves</span><strong>{formatSharePercent(tokenLiquidityBalance.data, liquiditySupply)}</strong></div>
+                  <p>Your LP shares divided by all pool shares; this estimates your portion of the current MUSD and {tradeToken}-MUSD reserves.</p>
+                </div>
+                <div className="lp-economics-item">
+                  <div className="lp-economics-heading"><span>Swap fee retained in the pool</span><strong>0.30% per swap</strong></div>
+                  <p>Each swap pays a 0.30% fee into the pool reserves. That can increase the value of LP shares over time. Fees are not a separate wallet balance, and the app does not calculate a wallet-specific fee total or APR.</p>
+                </div>
+                <div className="lp-economics-item">
+                  <div className="lp-economics-heading"><span>{tradeToken === 'YT' ? 'Realized YT yield claimable' : 'Source-vault yield for PT LPs'}</span><strong>{tradeToken !== 'YT' ? 'Not earned by PT LPs' : ytLiquidityYieldClaimable.isError ? 'Could not load value' : ytLiquidityYieldClaimable.data === undefined ? isConnected ? 'Reading on-chain value…' : 'Connect wallet to view' : walletLiquidityShares === BigInt(0) ? 'No YT LP position' : `${amount(ytLiquidityYieldClaimable.data)} MUSD claimable`}</strong></div>
+                  <p>{tradeToken === 'YT' ? 'This is realized, claimable source-vault yield for your YT-pool shares—not a forecast of future yield.' : 'PT-pool LPs do not receive source-vault yield; their pool value can benefit from swap fees retained in reserves.'}</p>
+                </div>
+                <div className="lp-economics-item">
+                  <div className="lp-economics-heading"><span>Additional liquidity rewards</span><strong>No separate rewards program</strong></div>
+                  <p>No token emissions or separate incentive campaign is active. This is separate from swap fees and, for YT LPs, realized claimable yield.</p>
+                </div>
               </div>
-              {tradeToken === 'YT' ? (
-                <>
-                  <p className="field-hint">
-                    Zero means no realized source yield is claimable to your YT-pool LP position yet. It is separate from minting PT/YT on the Trade page.
-                    {ytLiquidityYieldClaimable.isError && ' This market may need the updated contract deployment.'}
-                  </p>
-                  <button
-                    type="button"
-                    className="secondary-action"
-                    onClick={claimLiquidityYield}
-                    disabled={busy || !targetReady || !marketAddress || !yieldAddress || ytLiquidityYieldClaimable.isError || typeof ytLiquidityYieldClaimable.data !== 'bigint' || ytLiquidityYieldClaimable.data === BigInt(0)}
-                  >
-                    Claim YT-pool yield
-                  </button>
-                </>
-              ) : (
-                <p className="field-hint">
-                  PT-pool shares receive no source-vault yield: PT liquidity earns from swaps only. Swap fees are retained in pool reserves and this contract does not separately account realized fees by LP, so no fee-earnings amount or APR is shown.
-                </p>
+              {tradeToken === 'YT' && (
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={claimLiquidityYield}
+                  disabled={busy || !targetReady || !marketAddress || !yieldAddress || ytLiquidityYieldClaimable.isError || typeof ytLiquidityYieldClaimable.data !== 'bigint' || ytLiquidityYieldClaimable.data === BigInt(0)}
+                >
+                  Claim YT-pool yield
+                </button>
               )}
               <p className="field-warning lp-risk-note">Pool and asset risk: reserve prices can move and liquidity withdrawals may return a different token mix than deposited. YT-pool yield depends on realized sMUSD vault yield; source-vault, smart-contract, market, and testnet risks remain. These unaudited testnet contracts are not for mainnet funds.</p>
             </section>
