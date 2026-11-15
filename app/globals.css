@@ -125,7 +125,16 @@ h1 { margin: 0 0 7px; font-size: clamp(27px, 3vw, 34px); font-weight: 650; lette
 .section-heading > div, .source-heading > div { min-width: 0; flex: 1; }
 .section-heading h3, .source-heading h3, .form-card h3, .info-card h3, .position-actions-card h3 { margin: 5px 0 0; color: #2c2624; font-size: 16px; font-weight: 650; letter-spacing: -.25px; }
 .form-card > p, .info-card > p { color: var(--muted); font-size: 12px; line-height: 1.65; }
-.market-stats, .source-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 16px 0; }
+.market-stats, .source-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 16px 0; }
+.demo-flow { display: flex; flex-direction: column; gap: 9px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-soft); }
+.demo-flow p { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.demo-flow strong { color: var(--foreground); font-weight: 600; }
+.demo-flow p > span { color: var(--accent-strong); }
+.quote-unavailable { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.quote-unavailable .field-warning { margin: 0; }
+.trade-risk-note { margin: 4px 0 0; }
+@media (max-width: 1080px) { .market-stats, .source-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 420px) { .market-stats, .source-metrics { grid-template-columns: 1fr; } }
 .market-stats > div, .source-metrics > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 11px; border: 1px solid #e9e4e0; border-radius: 7px; background: var(--surface-soft); }
 .market-stats span, .source-metrics span, .balance-line span, .pool-summary > span { color: #6d625e; font-size: 10px; }
 .market-stats strong, .source-metrics strong, .balance-line strong { color: #2f2927; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
