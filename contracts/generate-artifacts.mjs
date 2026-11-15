@@ -6,7 +6,14 @@ import solc from 'solc'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceFiles = [
   'contracts/src/interfaces/IMUSDSavingsRate.sol',
+  'contracts/src/interfaces/IVeMezo.sol',
   'contracts/src/PrincipalToken.sol',
+  'contracts/src/VeMezoYieldToken.sol',
+  'contracts/src/VeMezoYieldSeries.sol',
+  'contracts/src/VeMezoYieldDeployer.sol',
+  'contracts/src/VeMezoMarket.sol',
+  'contracts/src/VeMezoMarketDeployer.sol',
+  'contracts/src/VeMezoYieldFactory.sol',
   'contracts/src/YieldToken.sol',
   'contracts/src/YieldExchange.sol',
   'contracts/src/YieldMarket.sol',
@@ -51,6 +58,10 @@ for (const [source, name] of [
   ['contracts/src/YieldExchangeDeployer.sol', 'YieldExchangeDeployer'],
   ['contracts/src/YieldMarketDeployer.sol', 'YieldMarketDeployer'],
   ['contracts/src/YieldSeriesFactory.sol', 'YieldSeriesFactory'],
+  ['contracts/src/VeMezoYieldToken.sol', 'VeMezoYieldToken'],
+  ['contracts/src/VeMezoYieldSeries.sol', 'VeMezoYieldSeries'],
+  ['contracts/src/VeMezoMarket.sol', 'VeMezoMarket'],
+  ['contracts/src/VeMezoYieldFactory.sol', 'VeMezoYieldFactory'],
 ]) {
   const contract = output.contracts[source][name]
   artifacts[name] = {

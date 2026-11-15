@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { NetworkStatus, WalletButton } from './wallet-provider'
 import { ProtocolWorkspace, type WorkspaceView } from './protocol-workspace'
+import { VeMezoWorkspace } from './ve-mezo-workspace'
 
 const navigation: { label: string; view: WorkspaceView; icon: typeof BarChart3 }[] = [
   { label: 'Markets', view: 'Markets', icon: BarChart3 },
@@ -24,6 +25,7 @@ const navigation: { label: string; view: WorkspaceView; icon: typeof BarChart3 }
   { label: 'Portfolio', view: 'Portfolio', icon: LayoutDashboard },
   { label: 'Redeem', view: 'Redeem', icon: Wallet },
   { label: 'Create market', view: 'Create', icon: Rocket },
+  { label: 'veMEZO markets', view: 'veMEZO', icon: Coins },
 ]
 
 export function ExchangeShell() {
@@ -99,12 +101,12 @@ export function ExchangeShell() {
           </div>
         </header>
         <section className="page-content" aria-label={`${activeView} workspace`}>
-          <div className="eyebrow"><span className="live-indicator" />MEZO TESTNET <span className="eyebrow-divider">/</span> MUSD YIELD EXCHANGE</div>
+          <div className="eyebrow"><span className="live-indicator" />MEZO TESTNET <span className="eyebrow-divider">/</span> {activeView === 'veMEZO' ? 'VEMEZO REBASE MARKETS' : 'MUSD YIELD EXCHANGE'}</div>
           <div className="heading-row">
-            <div><h1>{activeView === 'Create' ? 'Create Market' : activeView}</h1><p className="page-subtitle">Shared PT/YT maturity markets on Mezo Testnet.</p></div>
+            <div><h1>{activeView === 'Create' ? 'Create Market' : activeView === 'veMEZO' ? 'veMEZO Markets' : activeView}</h1><p className="page-subtitle">{activeView === 'veMEZO' ? 'NFT-backed PT/YT tranches and rebase claims on Mezo Testnet.' : 'Shared PT/YT maturity markets on Mezo Testnet.'}</p></div>
             <div className="maturity-chip"><span className="chip-glyph" aria-hidden="true">◷</span><span><small>NETWORK</small><strong>Chain 31611</strong></span></div>
           </div>
-          <ProtocolWorkspace view={activeView} onNavigate={navigate} />
+          {activeView === 'veMEZO' ? <VeMezoWorkspace /> : <ProtocolWorkspace view={activeView} onNavigate={navigate} />}
           <footer className="content-footer"><span>Mezo Testnet <span className="footer-sep">·</span> Experimental, unaudited contracts</span><a href="https://mezo.org" target="_blank" rel="noreferrer">Mezo network <ExternalLink size={12} aria-hidden="true" /></a></footer>
         </section>
       </main>

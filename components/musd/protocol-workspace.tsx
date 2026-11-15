@@ -15,7 +15,7 @@ import {
 import artifacts from '@/lib/deployment-artifacts.json'
 import { MEZO_TESTNET_CHAIN_ID, MUSD_ADDRESS, SMUSD_VAULT_ADDRESS, YIELD_SERIES_FACTORY_ADDRESS, mezoTestnet } from '@/lib/mezo'
 
-export type WorkspaceView = 'Markets' | 'Trade' | 'Mint' | 'Portfolio' | 'Redeem' | 'Create'
+export type WorkspaceView = 'Markets' | 'Trade' | 'Mint' | 'Portfolio' | 'Redeem' | 'Create' | 'veMEZO'
 
 const exchangeAbi = artifacts.YieldExchange.abi as Abi
 const marketAbi = artifacts.YieldMarket.abi as Abi
