@@ -29,7 +29,7 @@ export function MarketingHome() {
   return (
     <main className="marketing-page" id="top">
       <header className="marketing-nav">
-        <Link className="marketing-brand" href="/" aria-label="MUSD Yield Exchange home"><span className="brand-mark" aria-hidden="true">m</span><span>MUSD<span className="brand-light">.finance</span></span></Link>
+        <Link className="marketing-brand" href="/" aria-label="Velto Finance home"><span className="brand-mark" aria-hidden="true">V</span><span>Velto<span className="brand-light"> Finance</span></span></Link>
         <button className="marketing-menu-toggle" type="button" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
         <nav className={menuOpen ? 'marketing-links marketing-links-open' : 'marketing-links'} aria-label="Marketing navigation">
           <a href="#markets" onClick={() => setMenuOpen(false)}>Markets</a>
@@ -51,7 +51,7 @@ export function MarketingHome() {
           <div className="visual-topline"><span>MARKET STRUCTURE / 01</span><span>MATURITY-BASED</span></div>
           <div className="yield-art">
             <div className="art-orbit orbit-one" /><div className="art-orbit orbit-two" />
-            <div className="art-core"><span className="core-symbol">m</span><span className="core-caption">YIELD<br />EXCHANGE</span></div>
+            <div className="art-core"><span className="core-symbol">V</span><span className="core-caption">YIELD<br />EXCHANGE</span></div>
             <div className="art-node node-principal"><small>01 / PRINCIPAL</small><strong>PT</strong><span>Defined value at maturity</span></div>
             <div className="art-node node-yield"><small>02 / YIELD</small><strong>YT</strong><span>Exposure to future yield</span></div>
             <div className="art-node node-market"><small>03 / MARKET</small><strong>AMM</strong><span>Liquidity across maturities</span></div>
@@ -99,11 +99,11 @@ export function MarketingHome() {
 
       <section className="risk-section" id="risk" aria-labelledby="risk-title">
         <div className="risk-mark"><CircleHelp aria-hidden="true" /><span>READ BEFORE USE</span></div>
-        <div className="risk-copy"><div className="marketing-kicker">TRANSPARENCY FIRST</div><h2 id="risk-title">This is an experiment,<br /><em>not a promise of yield.</em></h2><p>MUSD Yield Exchange is an experimental interface for Mezo Testnet. Smart contracts, markets, displayed rates, and balances may be incomplete or change without notice. Testnet assets have no guaranteed value. This is not financial advice or a guarantee of performance.</p><Link href="/app">Review the live testnet markets <ArrowRight aria-hidden="true" /></Link></div>
+        <div className="risk-copy"><div className="marketing-kicker">TRANSPARENCY FIRST</div><h2 id="risk-title">This is an experiment,<br /><em>not a promise of yield.</em></h2><p>Velto Finance is an experimental interface for Mezo Testnet. Smart contracts, markets, displayed rates, and balances may be incomplete or change without notice. Testnet assets have no guaranteed value. This is not financial advice or a guarantee of performance.</p><Link href="/app">Review the live testnet markets <ArrowRight aria-hidden="true" /></Link></div>
         <div className="risk-stamp"><span>MEZO</span><strong>TEST<br />NET</strong><span>EXPERIMENTAL / 2026</span></div>
       </section>
 
-      <footer className="marketing-footer"><Link className="marketing-brand" href="/" aria-label="MUSD Yield Exchange home"><span className="brand-mark" aria-hidden="true">m</span><span>MUSD<span className="brand-light">.finance</span></span></Link><span>Yield markets on Mezo Testnet.</span><div><a href="#risk">Risk disclosure</a><Link href="/app">Open exchange <ArrowUpRight aria-hidden="true" /></Link></div></footer>
+      <footer className="marketing-footer"><Link className="marketing-brand" href="/" aria-label="Velto Finance home"><span className="brand-mark" aria-hidden="true">V</span><span>Velto<span className="brand-light"> Finance</span></span></Link><span>Yield markets on Mezo Testnet.</span><div><a href="#risk">Risk disclosure</a><Link href="/app">Open exchange <ArrowUpRight aria-hidden="true" /></Link></div></footer>
       <a className="back-to-top" href="#top" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>TOP <ChevronDown aria-hidden="true" /></a>
     </main>
   )

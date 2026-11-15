@@ -1,4 +1,4 @@
-# MUSD Yield Exchange — Mezo Testnet Implementation
+# Velto Finance — Yield Exchange on Mezo Testnet
 
 ## Live environment checks
 

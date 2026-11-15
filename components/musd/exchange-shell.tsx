@@ -60,9 +60,9 @@ export function ExchangeShell() {
   return (
     <div className="app-frame">
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`} aria-hidden={isMobile && !mobileOpen ? true : undefined} inert={isMobile && !mobileOpen}>
-        <a className="brand" href="#markets" aria-label="MUSD Yield Exchange home">
-          <span className="brand-mark" aria-hidden="true">m</span>
-          <span>MUSD<span className="brand-light">.finance</span></span>
+        <a className="brand" href="/" aria-label="Velto Finance home">
+          <span className="brand-mark" aria-hidden="true">V</span>
+          <span>Velto<span className="brand-light"> Finance</span></span>
         </a>
         <button type="button" className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X aria-hidden="true" /><span>Close menu</span></button>
         <div className="nav-caption">EXCHANGE</div>
@@ -82,7 +82,7 @@ export function ExchangeShell() {
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-expanded={mobileOpen} aria-label={mobileOpen ? 'Close menu' : 'Open menu'}>{mobileOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}</button>
           <div className="breadcrumbs"><span>Mezo</span><span className="crumb-slash">/</span><strong>{pageTitle}</strong></div>
-          <div className="top-actions"><a className="app-home-link" href="/" aria-label="Back to MUSD Yield Exchange marketing homepage">Home</a><NetworkStatus /><WalletButton /></div>
+          <div className="top-actions"><a className="app-home-link" href="/" aria-label="Back to Velto Finance homepage">Home</a><NetworkStatus /><WalletButton /></div>
         </header>
         <section className="page-content" aria-label={`${pageTitle} workspace`}>
           <div className="heading-row">
