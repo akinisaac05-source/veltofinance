@@ -4,7 +4,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'MUSD & veMEZO Yield Exchange | Mezo Testnet',
-  description: 'Testnet PT/YT markets for MUSD savings yield and veMEZO rebase rewards on Mezo.',
+  description: 'Explore MUSD and veMEZO yield markets, trade PT/YT, add liquidity, and view all positions on Mezo Testnet.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -26,8 +26,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'dark',
-  themeColor: '#0a0d10',
+  colorScheme: 'light',
+  themeColor: '#f7f5f2',
 }
 
 export default function RootLayout({

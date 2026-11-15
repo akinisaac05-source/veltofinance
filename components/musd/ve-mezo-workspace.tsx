@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWalletClient } from 'wagmi'
 import { erc20Abi, formatUnits, isAddress, parseUnits, type Abi, type Address, type Hex } from 'viem'
 import artifacts from '@/lib/deployment-artifacts.json'
-import { MEZO_TESTNET_CHAIN_ID, mezoTestnet } from '@/lib/mezo'
+import { MEZO_DEVELOPER_ADDRESS, MEZO_TESTNET_CHAIN_ID, mezoTestnet } from '@/lib/mezo'
 import { MEZO_TOKEN_ADDRESS, VEMEZO_ADDRESS, VEMEZO_DISTRIBUTOR_ADDRESS, VEMEZO_YIELD_FACTORY_ADDRESS, veMezoAbi, veMezoRewardsDistributorAbi } from '@/lib/ve-mezo'
 
 const factoryAbi = artifacts.VeMezoYieldFactory.abi as Abi
@@ -42,7 +42,9 @@ function errorMessage(error: unknown) {
   return message.slice(0, 180)
 }
 
-export function VeMezoWorkspace() {
+export type VeMezoView = 'Markets' | 'Trade' | 'Liquidity' | 'Portfolio' | 'Developer'
+
+export function VeMezoWorkspace({ view = 'Markets' }: { view?: VeMezoView }) {
   const [factoryAddress, setFactoryAddress] = useState<Address | undefined>(VEMEZO_YIELD_FACTORY_ADDRESS)
   const [factoryInput, setFactoryInput] = useState(VEMEZO_YIELD_FACTORY_ADDRESS ?? '')
   const [selectedNft, setSelectedNft] = useState('')
@@ -60,6 +62,7 @@ export function VeMezoWorkspace() {
   const publicClient = usePublicClient({ chainId: MEZO_TESTNET_CHAIN_ID })
   const queryClient = useQueryClient()
   const targetReady = isConnected && chainId === MEZO_TESTNET_CHAIN_ID && Boolean(address)
+  const isDeveloper = address?.toLowerCase() === MEZO_DEVELOPER_ADDRESS.toLowerCase()
   const account = address ?? zeroAddress
 
   const nftCountRead = useReadContract({
@@ -90,15 +93,40 @@ export function VeMezoWorkspace() {
     args: [BigInt(0), BigInt(50)],
     query: { enabled: Boolean(address && factoryAddress) },
   })
-  const createdPositionIds = useMemo(() => {
+  const seriesCatalog = useMemo(() => {
     const page = factorySeriesRead.data
-    if (!address || !Array.isArray(page) || !Array.isArray(page[0]) || !Array.isArray(page[4])) return []
-    return page[0].flatMap((id, index) =>
-      typeof id === 'bigint' && typeof page[4][index] === 'string' && page[4][index].toLowerCase() === address.toLowerCase()
-        ? [id]
-        : [],
-    )
-  }, [address, factorySeriesRead.data])
+    if (!Array.isArray(page) || !Array.isArray(page[0]) || !Array.isArray(page[2]) || !Array.isArray(page[4])) return []
+    return page[0].flatMap((id, index) => {
+      const tranche = asAddress(page[2][index])
+      const creator = asAddress(page[4][index])
+      return typeof id === 'bigint' && tranche && creator ? [{ id, tranche, creator }] : []
+    })
+  }, [factorySeriesRead.data])
+  const ownedSeries = useMemo(
+    () => address ? seriesCatalog.filter(({ creator }) => creator.toLowerCase() === address.toLowerCase()) : [],
+    [address, seriesCatalog],
+  )
+  const createdPositionIds = useMemo(() => ownedSeries.map(({ id }) => id), [ownedSeries])
+  const portfolioTokenReads = useReadContracts({
+    contracts: seriesCatalog.flatMap(({ tranche }) => [
+      { address: tranche, abi: seriesAbi, functionName: 'principalToken' as const },
+      { address: tranche, abi: seriesAbi, functionName: 'yieldToken' as const },
+      { address: tranche, abi: seriesAbi, functionName: 'principalDeposited' as const },
+      { address: tranche, abi: seriesAbi, functionName: 'maturity' as const },
+    ]),
+    query: { enabled: Boolean(address && seriesCatalog.length > 0) },
+  })
+  const portfolioBalancesRead = useReadContracts({
+    contracts: seriesCatalog.flatMap((_, index) => {
+      const principalToken = asAddress(portfolioTokenReads.data?.[index * 4]?.result) ?? zeroAddress
+      const yieldToken = asAddress(portfolioTokenReads.data?.[index * 4 + 1]?.result) ?? zeroAddress
+      return [
+        { address: principalToken, abi: erc20Abi, functionName: 'balanceOf' as const, args: [account] as const },
+        { address: yieldToken, abi: erc20Abi, functionName: 'balanceOf' as const, args: [account] as const },
+      ]
+    }),
+    query: { enabled: Boolean(address && seriesCatalog.length > 0 && portfolioTokenReads.data) },
+  })
   const positionIds = useMemo(
     () => Array.from(new Set([...ownedNftIds, ...createdPositionIds].map((id) => id.toString()))).map(BigInt),
     [createdPositionIds, ownedNftIds],
@@ -274,6 +302,7 @@ export function VeMezoWorkspace() {
     setStatus('')
     try {
       const { account, client } = ensureWallet()
+      if (!isDeveloper) throw new Error('Only the configured developer wallet can deploy protocol contracts.')
       const hash = await client.deployContract({
         account,
         chain: mezoTestnet,
@@ -439,143 +468,91 @@ export function VeMezoWorkspace() {
 
   const nftEligible = Boolean(lock && lock.amount > BigInt(0) && !lock.isPermanent && lock.end > now && escrowTypeRead.data === 0)
   const seriesExists = Boolean(trancheAddress)
-  const selectedNftOption = selectedId > BigInt(0)
 
+  const portfolioPtTotal = (portfolioBalancesRead.data ?? []).reduce((sum, result, index) => index % 2 === 0 && result.status === 'success' && typeof result.result === 'bigint' ? sum + result.result : sum, BigInt(0))
+  const portfolioYtTotal = (portfolioBalancesRead.data ?? []).reduce((sum, result, index) => index % 2 === 1 && result.status === 'success' && typeof result.result === 'bigint' ? sum + result.result : sum, BigInt(0))
   return (
     <section className="workspace-panel" aria-live="polite">
-      <div className="workspace-toolbar">
-        <div><span className="eyebrow">NFT-BACKED · MEZO TESTNET</span><h2>veMEZO Rebase Markets</h2></div>
-        <div className={`chain-status ${chainId === MEZO_TESTNET_CHAIN_ID ? 'chain-ok' : 'chain-warn'}`}><span className="network-indicator" />{isConnected ? chainId === MEZO_TESTNET_CHAIN_ID ? 'Wallet on Mezo Testnet' : 'Switch to Mezo Testnet' : 'Wallet not connected'}</div>
-      </div>
-
       {status && <p className="transaction-status" role="status">{status}</p>}
-
       <div className="workspace-content ve-mezo-content">
-        <div className="live-source-card">
-          <div className="source-heading"><span className="source-icon">v</span><div><span className="eyebrow">LIVE TESTNET CONTRACTS</span><h3>veMEZO escrow and rebase distributor</h3></div><span className="source-live"><i />Chain {MEZO_TESTNET_CHAIN_ID}</span></div>
-          <div className="source-metrics">
-            <div><span>Underlying</span><strong>MEZO · 18 decimals</strong></div>
-            <div><span>Wallet veMEZO NFTs</span><strong>{nftCountRead.isLoading ? 'Reading…' : String(nftCountRead.data ?? 0)}</strong></div>
-            <div><span>Rebase source</span><strong>Weekly RewardsDistributor</strong></div>
-            <div><span>Settlement delay</span><strong>7 days + epoch checkpoint</strong></div>
-          </div>
-          <div className="address-row"><span>veMEZO</span><code>{VEMEZO_ADDRESS}</code><a href={`https://explorer.mezo.org/address/${VEMEZO_ADDRESS}`} target="_blank" rel="noreferrer">Explorer</a></div>
-          <div className="address-row"><span>Rewards distributor</span><code>{VEMEZO_DISTRIBUTOR_ADDRESS}</code><a href={`https://explorer.mezo.org/address/${VEMEZO_DISTRIBUTOR_ADDRESS}`} target="_blank" rel="noreferrer">Explorer</a></div>
-          <div className="address-row"><span>MEZO token</span><code>{MEZO_TOKEN_ADDRESS}</code><a href={`https://explorer.mezo.org/address/${MEZO_TOKEN_ADDRESS}`} target="_blank" rel="noreferrer">Explorer</a></div>
-        </div>
+        {view === 'Markets' && <div className="form-card position-setup-card">
+          <div className="section-heading"><div><span className="eyebrow">NFT-BACKED MARKETS</span><h3>Choose a veMEZO lock</h3></div><span className="source-live"><i />Mezo Testnet</span></div>
+          {!isConnected ? <p className="field-hint">Connect your wallet to view eligible locks and existing positions.</p> : positionIds.length === 0 ? <p className="field-hint">No eligible veMEZO locks found. Your deposited PT/YT positions remain available in Portfolio.</p> : <div className="protocol-form">
+            <label htmlFor="ve-mezo-token-id">veMEZO lock or position</label>
+            <select id="ve-mezo-token-id" value={selectedId.toString()} onChange={(event) => setSelectedNft(event.target.value)}>
+              {positionIds.map((id) => <option key={id.toString()} value={id.toString()}>{createdPositionIds.includes(id) ? `Token #${id.toString()} · PT/YT position` : `Token #${id.toString()}`}</option>)}
+            </select>
+            {lock && !isDeposited && <div className="market-stats"><div><span>Locked amount</span><strong>{displayAmount(BigInt(lock.amount < 0 ? -lock.amount : lock.amount))} MEZO</strong></div><div><span>Expiry</span><strong>{new Date(Number(lock.end) * 1000).toLocaleDateString()}</strong></div><div><span>Eligibility</span><strong>{nftEligible ? 'Eligible' : 'Not eligible'}</strong></div></div>}
+            {!factoryVerified && <p className="field-hint">The shared veMEZO market factory is unavailable right now.</p>}
+            {factoryVerified && !seriesExists && <button type="button" className="primary-action" onClick={createSeries} disabled={busy || !targetReady || !nftEligible}>{busy ? 'Waiting for wallet…' : 'Create market'}</button>}
+            {factoryVerified && seriesExists && !isDeposited && <button type="button" className="primary-action" onClick={depositNft} disabled={busy || !targetReady || !nftEligible}>{busy ? 'Waiting for wallet…' : 'Deposit lock and mint PT + YT'}</button>}
+            {isDeposited && <p className="field-hint">This lock is escrowed. Your PT/YT tokens and claims are in Portfolio.</p>}
+          </div>}
+        </div>}
 
-        <div className="two-column-workspace">
-          <div className="form-card">
-            <span className="eyebrow">POSITION SETUP</span><h3>Select a veMEZO NFT or PT/YT position</h3>
-            {!isConnected ? <p className="field-hint">Connect a wallet on Mezo Testnet to read veMEZO positions.</p> : positionIds.length === 0 ? (
-              <p className="field-hint">No veMEZO NFTs or PT/YT positions were found for this wallet. Create a normal MEZO lock on Mezo Testnet first; permanent and managed NFTs are not eligible in this test build.</p>
-            ) : (
-              <div className="protocol-form">
-                <label htmlFor="ve-mezo-token-id">veMEZO NFT or position</label>
-                <select id="ve-mezo-token-id" value={selectedId.toString()} onChange={(event) => setSelectedNft(event.target.value)}>
-                  {positionIds.map((id) => {
-                    const hasSeries = createdPositionIds.includes(id)
-                    return <option key={id.toString()} value={id.toString()}>{hasSeries ? `Token #${id.toString()} · PT/YT position` : `Token #${id.toString()}`}</option>
-                  })}
-                </select>
-                {lock && <div className="source-metrics ve-position-metrics">
-                  <div><span>Locked principal</span><strong>{displayAmount(BigInt(lock.amount < 0 ? -lock.amount : lock.amount))} MEZO</strong></div>
-                  <div><span>Lock expiry</span><strong>{new Date(Number(lock.end) * 1000).toLocaleString()}</strong></div>
-                  <div><span>Position type</span><strong>{escrowTypeRead.data === 0 ? 'Normal veNFT' : 'Managed / locked'}</strong></div>
-                  <div><span>Eligibility</span><strong>{nftEligible ? 'Eligible' : 'Not eligible'}</strong></div>
-                </div>}
-                {factoryAddress && !factoryVerified && <p className="field-hint field-warning">This factory address does not match the live veMEZO and MEZO contracts. Verify the address or deploy a new testnet factory.</p>}
-                {factoryVerified && seriesExists && <div className="address-row"><span>Tranche</span><code>{trancheAddress}</code><a href={`https://explorer.mezo.org/address/${trancheAddress}`} target="_blank" rel="noreferrer">Explorer</a></div>}
-                {factoryVerified && seriesExists && <div className="address-row"><span>PT/YT market</span><code>{marketAddress}</code><a href={`https://explorer.mezo.org/address/${marketAddress}`} target="_blank" rel="noreferrer">Explorer</a></div>}
-                {factoryVerified && !seriesExists && <button type="button" className="primary-action" onClick={createSeries} disabled={busy || !targetReady || !nftEligible}>{busy ? 'Waiting for wallet…' : 'Create this NFT’s PT/YT market'}</button>}
-                {factoryVerified && seriesExists && !isDeposited && <button type="button" className="primary-action" onClick={depositNft} disabled={busy || !targetReady || !nftEligible}>{busy ? 'Waiting for wallet…' : 'Approve NFT and mint PT + YT'}</button>}
-                {isDeposited && <div className="balance-line"><span>Escrowed principal</span><strong>{displayAmount(principalAmountRead.data)} MEZO</strong></div>}
-              </div>
-            )}
-            {!factoryAddress ? <div className="protocol-form"><p className="field-hint">Deploy one shared veMEZO factory on testnet. This uses the live veMEZO, distributor, and MEZO addresses above.</p><button type="button" className="primary-action" onClick={deployFactory} disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Deploy veMEZO factory'}</button></div> : (
-              <form className="protocol-form ve-factory-form" onSubmit={useFactoryAddress}>
-                <label htmlFor="ve-factory-address">Shared factory address</label><input id="ve-factory-address" value={factoryInput} onChange={(event) => setFactoryInput(event.target.value)} placeholder="0x…" />
-                <button className="secondary-action" type="submit">Use factory address</button>
-                {!factoryVerified && <button type="button" className="secondary-action" onClick={deployFactory} disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Deploy a new factory'}</button>}
-              </form>
-            )}
-          </div>
+        {view === 'Trade' && <div className="form-card trade-card">
+          <div className="section-heading"><div><span className="eyebrow">MEZO SPOT MARKET</span><h3>Swap PT or YT</h3></div><span className="status-pill status-open">0.30% fee</span></div>
+          {positionIds.length > 1 && <div className="protocol-form"><label htmlFor="ve-trade-position">Market position</label><select id="ve-trade-position" value={selectedId.toString()} onChange={(event) => setSelectedNft(event.target.value)}>{positionIds.map((id) => <option key={id.toString()} value={id.toString()}>Token #{id.toString()}</option>)}</select></div>}
+          {!seriesExists || !isDeposited ? <p className="field-hint">Create and deposit a veMEZO lock in Markets to open its PT/YT pair.</p> : <>
+            <div className="segmented-control"><button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => { setTradeToken('PT'); setTradeAmount('') }}>PT-veMEZO</button><button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => { setTradeToken('YT'); setTradeAmount('') }}>YT-veMEZO</button></div>
+            <div className="market-stats"><div><span>MEZO reserve</span><strong>{displayAmount(reserveMezo)} MEZO</strong></div><div><span>{tradeToken} reserve</span><strong>{displayAmount(reserveToken)} {tradeToken}</strong></div><div><span>Your balance</span><strong>{displayAmount(currentTokenBalance)} {tradeToken}</strong></div></div>
+            <form className="protocol-form" onSubmit={trade}>
+              <label htmlFor="ve-trade-side">Pay with</label><select id="ve-trade-side" value={tradeSide} onChange={(event) => setTradeSide(event.target.value as 'MEZO' | 'TOKEN')}><option value="MEZO">MEZO</option><option value="TOKEN">{tradeToken}-veMEZO</option></select>
+              <label htmlFor="ve-trade-amount">Amount</label><div className="amount-input"><input id="ve-trade-amount" inputMode="decimal" value={tradeAmount} onChange={(event) => setTradeAmount(event.target.value)} placeholder="0.00" /><span>{tradeSide === 'MEZO' ? 'MEZO' : `${tradeToken}-veMEZO`}</span></div>
+              <div className="balance-line"><span>Estimated receive</span><strong>{displayAmount(quoteRead.data)} {tradeSide === 'MEZO' ? `${tradeToken}-veMEZO` : 'MEZO'}</strong></div>
+              <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !quoteRead.data}>{busy ? 'Waiting for wallet…' : 'Review swap'}</button>
+            </form>
+          </>}
+        </div>}
 
-          <div className="info-card">
-            <span className="eyebrow">TESTNET MODEL · SINGLE NFT TRANCHE</span><h3>How this prototype settles</h3>
-            <div className="token-explainer"><b>PT</b><span>Redeems the MEZO amount locked when the NFT was deposited. That principal is fixed before new YT rewards start.</span></div>
-            <div className="token-explainer"><b>YT</b><span>Accrues only rebases claimed after deposit. Transfers checkpoint rewards so the previous holder keeps accrued amounts.</span></div>
-            <div className="token-explainer"><b>1</b><span>One series is created per NFT because each lock has its own expiry; only normal, non-permanent positions are accepted.</span></div>
-            <div className="token-explainer"><b>2</b><span>At maturity, the NFT is withdrawn and burned by Mezo’s escrow; PT and YT holders redeem MEZO, not the original NFT.</span></div>
-            <p className="field-hint">Rebase claims require the Mezo distributor’s epoch to be updated. Settlement waits seven days after expiry and verifies the distributor cursor reached maturity before burning the NFT.</p>
-          </div>
-        </div>
-
-        {seriesExists && isDeposited && (
-          <div className="two-column-workspace">
-            <div className="series-card">
-              <div className="section-heading"><div><span className="eyebrow">ESCROWED VE MEZO POSITION</span><h3>PT-veMEZO / YT-veMEZO</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : canSettle ? 'Ready to settle' : 'Active'}</span></div>
-              <div className="source-metrics">
-                <div><span>Maturity</span><strong>{maturity ? new Date(Number(maturity) * 1000).toLocaleString() : '—'}</strong></div>
-                <div><span>Your PT</span><strong>{displayAmount(ptBalanceRead.data)} PT-veMEZO</strong></div>
-                <div><span>Your YT</span><strong>{displayAmount(ytBalanceRead.data)} YT-veMEZO</strong></div>
-                <div><span>Claimable YT rewards</span><strong>{displayAmount(ytClaimableRead.data)} MEZO</strong></div>
-                {isSettled && <>
-                  <div><span>PT redemption rate</span><strong>{displayAmount(principalClaimRead.data)} MEZO total</strong></div>
-                  <div><span>Remaining YT reserve</span><strong>{displayAmount(yieldReserveRead.data)} MEZO</strong></div>
-                </>}
-              </div>
-              <div className="action-row">
-                {!isSettled && <button type="button" className="secondary-action" onClick={checkpoint} disabled={busy || !targetReady}>Checkpoint rebase</button>}
-                {isDeposited && !isSettled && <button type="button" className="primary-action" onClick={settle} disabled={busy || !targetReady || !canSettle}>Settle after expiry</button>}
-                {isSettled && typeof ptBalanceRead.data === 'bigint' && ptBalanceRead.data > BigInt(0) && <button type="button" className="primary-action" onClick={redeemPrincipal} disabled={busy || !targetReady}>Redeem all PT</button>}
-                {isSettled && typeof ytClaimableRead.data === 'bigint' && ytClaimableRead.data > BigInt(0) && <button type="button" className="secondary-action" onClick={claimYield} disabled={busy || !targetReady}>Claim YT MEZO</button>}
-              </div>
-              {!canSettle && !isSettled && <p className="field-hint">{settlementDelayPassed && distributorCursor < maturity ? 'Waiting for the rewards distributor to checkpoint through this NFT’s expiry; the contract will not burn the NFT before then.' : 'Settlement unlocks seven days after the NFT lock expiry so the last weekly rebase can be accounted for.'}</p>}
+        {view === 'Liquidity' && <div className="form-card liquidity-card">
+          <div className="section-heading"><div><span className="eyebrow">LIQUIDITY</span><h3>Manage your pool position</h3></div></div>
+          {positionIds.length > 1 && <div className="protocol-form"><label htmlFor="ve-liquidity-position">Market position</label><select id="ve-liquidity-position" value={selectedId.toString()} onChange={(event) => setSelectedNft(event.target.value)}>{positionIds.map((id) => <option key={id.toString()} value={id.toString()}>Token #{id.toString()}</option>)}</select></div>}
+          {!seriesExists || !isDeposited || !marketAddress || !tokenAddress ? <p className="field-hint">A deposited PT/YT market is required before adding liquidity.</p> : <>
+            <div className="segmented-control"><button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => setTradeToken('PT')}>PT pool</button><button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => setTradeToken('YT')}>YT pool</button></div>
+            <div className="market-stats"><div><span>Your LP shares</span><strong>{displayAmount(lpBalanceRead.data)}</strong></div><div><span>Pool shares</span><strong>{displayAmount(liquiditySupply)}</strong></div></div>
+            <div className="two-column-workspace">
+              <form className="protocol-form" onSubmit={addLiquidity}><label htmlFor="ve-lp-mezo">MEZO amount</label><input id="ve-lp-mezo" inputMode="decimal" value={liquidityMezo} onChange={(event) => setLiquidityMezo(event.target.value)} placeholder="0.00" /><label htmlFor="ve-lp-token">{tradeToken}-veMEZO amount</label><input id="ve-lp-token" inputMode="decimal" value={liquidityToken} onChange={(event) => setLiquidityToken(event.target.value)} placeholder="0.00" /><button className="primary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Add liquidity'}</button></form>
+              <form className="protocol-form" onSubmit={removeLiquidity}><label htmlFor="ve-lp-shares">LP shares to remove</label><input id="ve-lp-shares" inputMode="decimal" value={removeShares} onChange={(event) => setRemoveShares(event.target.value)} placeholder="0.00" /><div className="balance-line"><span>Available</span><strong>{displayAmount(lpBalanceRead.data)} shares</strong></div><button className="secondary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Remove liquidity'}</button></form>
             </div>
+          </>}
+        </div>}
 
-            <div className="form-card">
-              <span className="eyebrow">MEZO SPOT MARKET · 0.30% FEE</span><h3>Trade PT or YT against MEZO</h3>
-              <div className="segmented-control"><button type="button" className={tradeToken === 'PT' ? 'segment-active' : ''} onClick={() => { setTradeToken('PT'); setTradeAmount('') }}>PT-veMEZO</button><button type="button" className={tradeToken === 'YT' ? 'segment-active' : ''} onClick={() => { setTradeToken('YT'); setTradeAmount('') }}>YT-veMEZO</button></div>
-              <div className="source-metrics">
-                <div><span>MEZO reserve</span><strong>{displayAmount(reserveMezo)} MEZO</strong></div>
-                <div><span>{tradeToken} reserve</span><strong>{displayAmount(reserveToken)} {tradeToken}-veMEZO</strong></div>
-                <div><span>Your MEZO</span><strong>{displayAmount(mezoBalanceRead.data)} MEZO</strong></div>
-                <div><span>Your {tradeToken}</span><strong>{displayAmount(currentTokenBalance)} {tradeToken}-veMEZO</strong></div>
-              </div>
-              <form className="protocol-form" onSubmit={trade}>
-                <label htmlFor="ve-trade-side">You pay</label><select id="ve-trade-side" value={tradeSide} onChange={(event) => setTradeSide(event.target.value as 'MEZO' | 'TOKEN')}><option value="MEZO">MEZO</option><option value="TOKEN">{tradeToken}-veMEZO</option></select>
-                <label htmlFor="ve-trade-amount">Amount</label><div className="amount-input"><input id="ve-trade-amount" inputMode="decimal" value={tradeAmount} onChange={(event) => setTradeAmount(event.target.value)} placeholder="0.00" /><span>{tradeSide === 'MEZO' ? 'MEZO' : `${tradeToken}-veMEZO`}</span></div>
-                <div className="balance-line"><span>Estimated receive</span><strong>{displayAmount(quoteRead.data)} {tradeSide === 'MEZO' ? `${tradeToken}-veMEZO` : 'MEZO'}</strong></div>
-                <button className="primary-action" disabled={busy || !targetReady || !marketAddress}>{busy ? 'Waiting for wallet…' : `Swap ${tradeSide === 'MEZO' ? 'MEZO' : `${tradeToken}-veMEZO`}`}</button>
-              </form>
-            </div>
+        {view === 'Portfolio' && <div className="portfolio-content">
+          <div className="portfolio-grid"><div className="balance-card"><span>MEZO</span><strong>{displayAmount(mezoBalanceRead.data)}</strong><small>Wallet balance</small></div><div className="balance-card"><span>PT-veMEZO</span><strong>{displayAmount(portfolioPtTotal)}</strong><small>Across listed markets</small></div><div className="balance-card"><span>YT-veMEZO</span><strong>{displayAmount(portfolioYtTotal)}</strong><small>Across listed markets</small></div></div>
+          <div className="portfolio-position-list">
+            {seriesCatalog.map((series, index) => {
+              const ptResult = portfolioBalancesRead.data?.[index * 2]
+              const ytResult = portfolioBalancesRead.data?.[index * 2 + 1]
+              const pt = ptResult?.status === 'success' && typeof ptResult.result === 'bigint' ? ptResult.result : BigInt(0)
+              const yt = ytResult?.status === 'success' && typeof ytResult.result === 'bigint' ? ytResult.result : BigInt(0)
+              if (pt === BigInt(0) && yt === BigInt(0) && series.creator.toLowerCase() !== address?.toLowerCase()) return null
+              const maturity = portfolioTokenReads.data?.[index * 4 + 3]?.result
+              return <button type="button" key={series.id.toString()} className="portfolio-position" onClick={() => setSelectedNft(series.id.toString())}>
+                <span><strong>veMEZO market #{series.id.toString()}</strong><small>{typeof maturity === 'bigint' ? `Matures ${new Date(Number(maturity) * 1000).toLocaleDateString()}` : 'Loading maturity'}</small></span>
+                <span><strong>{displayAmount(pt)} PT</strong><small>{displayAmount(yt)} YT</small></span>
+              </button>
+            })}
           </div>
-        )}
+          {portfolioPtTotal === BigInt(0) && portfolioYtTotal === BigInt(0) && <p className="field-hint">{isConnected ? 'No PT/YT positions found across these markets yet.' : 'Connect your wallet to see your veMEZO positions.'}</p>}
+          {seriesExists && isDeposited && <div className="position-actions-card">
+            <div className="section-heading"><div><span className="eyebrow">SELECTED POSITION #{selectedId.toString()}</span><h3>{isSettled ? 'Claims available' : canSettle ? 'Ready to settle' : 'Active position'}</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : 'Active'}</span></div>
+            <div className="market-stats"><div><span>Claimable rewards</span><strong>{displayAmount(ytClaimableRead.data)} MEZO</strong></div><div><span>PT balance</span><strong>{displayAmount(ptBalanceRead.data)} PT</strong></div><div><span>YT balance</span><strong>{displayAmount(ytBalanceRead.data)} YT</strong></div></div>
+            <div className="action-row">{!isSettled && <button type="button" className="secondary-action" onClick={checkpoint} disabled={busy || !targetReady}>Claim latest rebase</button>}{!isSettled && <button type="button" className="primary-action" onClick={settle} disabled={busy || !targetReady || !canSettle}>Settle after expiry</button>}{isSettled && typeof ptBalanceRead.data === 'bigint' && ptBalanceRead.data > BigInt(0) && <button type="button" className="primary-action" onClick={redeemPrincipal} disabled={busy || !targetReady}>Redeem PT</button>}{isSettled && typeof ytClaimableRead.data === 'bigint' && ytClaimableRead.data > BigInt(0) && <button type="button" className="secondary-action" onClick={claimYield} disabled={busy || !targetReady}>Claim MEZO rewards</button>}</div>
+            {!canSettle && !isSettled && <p className="field-hint">Settlement unlocks seven days after expiry, once the rewards distributor has checkpointed through the lock end.</p>}
+          </div>}
+        </div>}
 
-        {seriesExists && isDeposited && marketAddress && tokenAddress && (
-          <div className="two-column-workspace">
-            <div className="form-card">
-              <span className="eyebrow">PERMISSIONLESS LIQUIDITY</span><h3>Add MEZO + {tradeToken}-veMEZO</h3>
-              <div className="source-metrics"><div><span>Your LP shares</span><strong>{displayAmount(lpBalanceRead.data)}</strong></div><div><span>Total pool shares</span><strong>{displayAmount(liquiditySupply)}</strong></div></div>
-              <form className="protocol-form" onSubmit={addLiquidity}>
-                <label htmlFor="ve-lp-mezo">MEZO amount</label><input id="ve-lp-mezo" inputMode="decimal" value={liquidityMezo} onChange={(event) => setLiquidityMezo(event.target.value)} placeholder="0.00" />
-                <label htmlFor="ve-lp-token">{tradeToken}-veMEZO amount</label><input id="ve-lp-token" inputMode="decimal" value={liquidityToken} onChange={(event) => setLiquidityToken(event.target.value)} placeholder="0.00" />
-                <button className="primary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Approve and add liquidity'}</button>
-              </form>
+        {view === 'Developer' && <div className="two-column-workspace developer-tools">
+          {!isDeveloper ? <div className="form-card"><h3>Developer access required</h3><p className="field-hint">Connect the configured developer wallet to manage protocol contracts.</p></div> : <>
+            <div className="form-card"><span className="eyebrow">VE MEZO ADMIN</span><h3>Shared factory</h3><p className="field-hint">Deployment controls are only shown for the configured developer wallet.</p>
+              <form className="protocol-form ve-factory-form" onSubmit={useFactoryAddress}><label htmlFor="ve-factory-address">Factory address</label><input id="ve-factory-address" value={factoryInput} onChange={(event) => setFactoryInput(event.target.value)} placeholder="0x…" /><button className="secondary-action" type="submit">Verify factory</button></form>
+              <div className="balance-line"><span>Factory status</span><strong>{factoryVerified ? 'Verified' : 'Not verified'}</strong></div>
+              <button type="button" className="primary-action" onClick={deployFactory} disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Deploy veMEZO factory'}</button>
             </div>
-            <div className="form-card">
-              <span className="eyebrow">LP POSITION</span><h3>Remove liquidity</h3>
-              <form className="protocol-form" onSubmit={removeLiquidity}>
-                <label htmlFor="ve-lp-shares">LP shares to remove</label><input id="ve-lp-shares" inputMode="decimal" value={removeShares} onChange={(event) => setRemoveShares(event.target.value)} placeholder="0.00" />
-                <p className="field-hint">Your MEZO and {tradeToken} amounts are returned pro rata. YT-pool rebase proceeds are reflected in the MEZO reserve after settlement.</p>
-                <button className="secondary-action" disabled={busy || !targetReady}>{busy ? 'Waiting for wallet…' : 'Remove liquidity'}</button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        <div className="risk-note"><strong>Testnet prototype; unaudited.</strong><span>Only deposit testnet veMEZO NFTs you are willing to consume. On settlement, Mezo burns the expired NFT and returns its MEZO to the PT/YT series. Verify the contract address, lock expiry, and gas estimate in your wallet before confirming.</span></div>
+            <div className="info-card"><span className="eyebrow">CONTRACT REFERENCES</span><h3>Mezo Testnet</h3><div className="address-row"><span>veMEZO</span><code>{VEMEZO_ADDRESS}</code></div><div className="address-row"><span>Rewards distributor</span><code>{VEMEZO_DISTRIBUTOR_ADDRESS}</code></div><div className="address-row"><span>MEZO token</span><code>{MEZO_TOKEN_ADDRESS}</code></div>{factoryAddress && <div className="address-row"><span>Factory</span><code>{factoryAddress}</code></div>}</div>
+          </>}
+        </div>}
       </div>
     </section>
   )
