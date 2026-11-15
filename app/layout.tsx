@@ -7,8 +7,8 @@ export const metadata: Metadata = {
   description: 'Velto Finance lets you explore MUSD savings and veMEZO lock-yield markets, compare maturities, trade principal and yield tokens, and manage positions on Mezo Testnet.',
   generator: 'v0.app',
   icons: {
-    icon: '/icon.svg',
-    apple: '/icon.svg',
+    icon: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/velto_finance_v_favicon-2bBcmm4VM62GAh221nP7bQLjpeBPLo.png',
+    apple: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/velto_finance_v_favicon-2bBcmm4VM62GAh221nP7bQLjpeBPLo.png',
   },
 }
 

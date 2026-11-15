@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { VeltoLogo } from './velto-logo'
 import { ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, Check, ChevronDown, CircleHelp, Menu, ShieldCheck, Sparkles, X } from 'lucide-react'
 
 type Product = 'MUSD' | 'veMEZO'
@@ -29,7 +30,7 @@ export function MarketingHome() {
   return (
     <main className="marketing-page" id="top">
       <header className="marketing-nav">
-        <Link className="marketing-brand" href="/" aria-label="Velto Finance home"><span className="brand-mark" aria-hidden="true">V</span><span>Velto<span className="brand-light"> Finance</span></span></Link>
+        <Link className="marketing-brand" href="/" aria-label="Velto Finance home"><VeltoLogo /></Link>
         <button className="marketing-menu-toggle" type="button" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
         <nav className={menuOpen ? 'marketing-links marketing-links-open' : 'marketing-links'} aria-label="Marketing navigation">
           <a href="#markets" onClick={() => setMenuOpen(false)}>Markets</a>
@@ -103,7 +104,7 @@ export function MarketingHome() {
         <div className="risk-stamp"><span>MEZO</span><strong>TEST<br />NET</strong><span>EXPERIMENTAL / 2026</span></div>
       </section>
 
-      <footer className="marketing-footer"><Link className="marketing-brand" href="/" aria-label="Velto Finance home"><span className="brand-mark" aria-hidden="true">V</span><span>Velto<span className="brand-light"> Finance</span></span></Link><span>Yield markets on Mezo Testnet.</span><div><a href="#risk">Risk disclosure</a><Link href="/app">Open exchange <ArrowUpRight aria-hidden="true" /></Link></div></footer>
+      <footer className="marketing-footer"><Link className="marketing-brand" href="/" aria-label="Velto Finance home"><VeltoLogo /></Link><span>Yield markets on Mezo Testnet.</span><div><a href="#risk">Risk disclosure</a><Link href="/app">Open exchange <ArrowUpRight aria-hidden="true" /></Link></div></footer>
       <a className="back-to-top" href="#top" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>TOP <ChevronDown aria-hidden="true" /></a>
     </main>
   )

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { ArrowDownUp, BarChart3, Code2, Droplets, LayoutDashboard, Menu, X } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { MEZO_DEVELOPER_ADDRESS } from '@/lib/mezo'
+import { VeltoLogo } from './velto-logo'
 import { NetworkStatus, WalletButton } from './wallet-provider'
 import { ProtocolWorkspace, type WorkspaceView } from './protocol-workspace'
 import { VeMezoWorkspace, type VeMezoView } from './ve-mezo-workspace'
@@ -61,8 +62,7 @@ export function ExchangeShell() {
     <div className="app-frame">
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`} aria-hidden={isMobile && !mobileOpen ? true : undefined} inert={isMobile && !mobileOpen}>
         <a className="brand" href="/" aria-label="Velto Finance home">
-          <span className="brand-mark" aria-hidden="true">V</span>
-          <span>Velto<span className="brand-light"> Finance</span></span>
+          <VeltoLogo />
         </a>
         <button type="button" className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X aria-hidden="true" /><span>Close menu</span></button>
         <div className="nav-caption">EXCHANGE</div>

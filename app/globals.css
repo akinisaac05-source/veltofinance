@@ -35,9 +35,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .app-frame { min-height: 100vh; display: flex; background: var(--background); }
 .sidebar { width: 232px; position: fixed; inset: 0 auto 0 0; display: flex; flex-direction: column; padding: 24px 14px 18px; border-right: 1px solid var(--border); background: #fff; z-index: 5; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 9px 35px; font-size: 17px; font-weight: 700; letter-spacing: -.5px; }
-.brand-mark { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 10px; background: var(--accent); color: #fff; font-family: Georgia, serif; font-size: 22px; font-weight: 800; }
-.brand-light { color: var(--muted); font-weight: 400; }
+.brand { display: flex; align-items: center; padding: 0 9px 35px; }
+.velto-logo-frame { position: relative; width: 160px; height: 48px; display: block; flex: 0 0 auto; overflow: hidden; }
+.velto-logo-frame img { position: absolute; top: 50%; left: 50%; width: 195px; max-width: none; height: auto; transform: translate(-50%, -50%); }
+.brand .velto-logo-frame { width: 180px; height: 52px; }
+.brand .velto-logo-frame img { width: 219px; }
 .nav-caption { padding: 0 11px 10px; color: #5d5753; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
 .sidebar nav { display: grid; gap: 5px; }
 .nav-item { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent; color: #504a47; text-align: left; font-size: 13px; cursor: pointer; }
@@ -309,9 +311,7 @@ h1 { margin: 0 0 7px; font-size: clamp(27px, 3vw, 34px); font-weight: 650; lette
 /* Marketing homepage */
 .marketing-page { min-height: 100vh; overflow: hidden; background: var(--marketing-paper); color: var(--marketing-ink); font-family: Arial, Helvetica, sans-serif; }
 .marketing-nav { position: relative; z-index: 2; max-width: 1440px; min-height: 82px; display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 0 auto; padding: 0 6.2%; border-bottom: 1px solid var(--marketing-line); }
-.marketing-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--marketing-ink); font-size: 16px; font-weight: 750; letter-spacing: -.55px; }
-.marketing-brand .brand-mark { width: 32px; height: 32px; border-radius: 10px 10px 10px 3px; background: var(--marketing-dark); }
-.marketing-brand .brand-light { color: var(--marketing-muted); }
+.marketing-brand { display: inline-flex; align-items: center; color: var(--marketing-ink); }
 .marketing-links { display: flex; align-items: center; gap: clamp(17px, 3vw, 42px); }
 .marketing-links > a:not(.marketing-nav-cta) { color: #535a55; font-size: 12px; transition: color .2s ease; }
 .marketing-links > a:not(.marketing-nav-cta):hover { color: var(--marketing-red); }
