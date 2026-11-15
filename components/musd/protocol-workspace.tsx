@@ -410,18 +410,21 @@ export function ProtocolWorkspace({
     return receipt
   }
 
-  const ensureWallet = () => {
-    if (!address || !walletClient.data || !publicClient) throw new Error('Connect a wallet to continue.')
-    if (!isTargetChain) throw new Error('Switch your wallet to Mezo Testnet first.')
-    return { account: address, client: walletClient.data }
+  const ensureWallet = async () => {
+    if (!address || !isConnected) throw new Error('Connect a wallet to continue.')
+    if (!isTargetChain) throw new Error('Wallet connected. Switch to Mezo Testnet to continue.')
+    if (!publicClient) throw new Error('Mezo Testnet RPC is unavailable. Try again shortly.')
+    const client = walletClient.data ?? (await walletClient.refetch()).data
+    if (!client) throw new Error('Wallet connected, but its transaction signer is unavailable. Unlock or reconnect your wallet, then try again.')
+    return { account: address, client }
   }
 
-  const runWrite = async (label: string, action: (account: Address) => Promise<Hex>) => {
+  const runWrite = async (label: string, action: (account: Address, client: NonNullable<typeof walletClient.data>) => Promise<Hex>) => {
     setBusy(true)
     setStatus('')
     try {
-      const { account } = ensureWallet()
-      const hash = await action(account)
+      const { account, client } = await ensureWallet()
+      const hash = await action(account, client)
       await waitForTransaction(hash, label)
       setStatus(`${label} confirmed.`)
     } catch (error) {
@@ -435,7 +438,7 @@ export function ProtocolWorkspace({
     setBusy(true)
     setStatus('')
     try {
-      const { account, client } = ensureWallet()
+      const { account, client } = await ensureWallet()
       if (!isDeveloper) throw new Error('Only the configured developer wallet can deploy protocol contracts.')
       if (!sourceVerified) throw new Error('The configured sMUSD vault has not passed its live on-chain identity checks.')
       const hash = await client.deployContract({
@@ -461,7 +464,7 @@ export function ProtocolWorkspace({
     setBusy(true)
     setStatus('')
     try {
-      const { account, client } = ensureWallet()
+      const { account, client } = await ensureWallet()
       if (!factoryAddress) throw new Error('The shared series factory is not configured for this app.')
       if (!sourceVerified) throw new Error('The configured sMUSD vault has not passed its live on-chain identity checks.')
       const maturityTimestamp = Math.floor(new Date(maturityInput).getTime() / 1000)
@@ -498,8 +501,7 @@ export function ProtocolWorkspace({
     } catch {
       return setStatus('Enter a valid MUSD amount.')
     }
-    await runWrite('Mint PT/YT', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Mint PT/YT', async (account, client) => {
       const allowance = typeof ptAllowance.data === 'bigint' ? ptAllowance.data : BigInt(0)
       if (allowance < parsed) {
         const approval = await client.writeContract({
@@ -529,8 +531,7 @@ export function ProtocolWorkspace({
     const quote = typeof marketQuote.data === 'bigint' ? marketQuote.data : BigInt(0)
     if (quote === BigInt(0)) return setStatus('This pool has no live quote yet. Add liquidity first.')
     const minOut = (quote * BigInt(9_900)) / BigInt(10_000)
-    await runWrite(`${tradeDirection === 'MUSD' ? 'Buy' : 'Sell'} ${tradeToken}`, async (account) => {
-      const { client } = ensureWallet()
+    await runWrite(`${tradeDirection === 'MUSD' ? 'Buy' : 'Sell'} ${tradeToken}`, async (account, client) => {
       const allowance = typeof tokenAllowance.data === 'bigint' ? tokenAllowance.data : BigInt(0)
       if (allowance < parsedTradeAmount) {
         const approval = await client.writeContract({
@@ -637,8 +638,7 @@ export function ProtocolWorkspace({
     } catch {
       return setStatus('Enter valid liquidity amounts.')
     }
-    await runWrite('Add liquidity', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Add liquidity', async (account, client) => {
       const assetAllowance = typeof assetPoolAllowance.data === 'bigint' ? assetPoolAllowance.data : BigInt(0)
       if (assetAllowance < assetAmount) {
         const approval = await client.writeContract({
@@ -704,8 +704,7 @@ export function ProtocolWorkspace({
     const expectedTokenOut = (shares * reserveToken) / liquiditySupply
     const minAssetOut = (expectedAssetOut * BigInt(9_900)) / BigInt(10_000)
     const minTokenOut = (expectedTokenOut * BigInt(9_900)) / BigInt(10_000)
-    await runWrite('Remove liquidity', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Remove liquidity', async (account, client) => {
       return client.writeContract({
         account,
         chain: mezoTestnet,
@@ -719,8 +718,7 @@ export function ProtocolWorkspace({
 
   const harvest = async () => {
     if (!exchangeAddress) return
-    await runWrite('Harvest realized sMUSD yield', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Harvest realized sMUSD yield', async (account, client) => {
       return client.writeContract({
         account,
         chain: mezoTestnet,
@@ -733,8 +731,7 @@ export function ProtocolWorkspace({
 
   const settle = async () => {
     if (!exchangeAddress) return
-    await runWrite('Settle series', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Settle series', async (account, client) => {
       return client.writeContract({
         account,
         chain: mezoTestnet,
@@ -747,8 +744,7 @@ export function ProtocolWorkspace({
 
   const redeem = async () => {
     if (!exchangeAddress || typeof userPtBalance.data !== 'bigint' || userPtBalance.data === BigInt(0)) return
-    await runWrite('Redeem PT principal', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Redeem PT principal', async (account, client) => {
       return client.writeContract({
         account,
         chain: mezoTestnet,
@@ -762,8 +758,7 @@ export function ProtocolWorkspace({
 
   const claimYield = async () => {
     if (!yieldAddress) return
-    await runWrite('Claim realized yield', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Claim realized yield', async (account, client) => {
       return client.writeContract({
         account,
         chain: mezoTestnet,
@@ -776,8 +771,7 @@ export function ProtocolWorkspace({
 
   const claimLiquidityYield = async () => {
     if (!marketAddress || !yieldAddress) return
-    await runWrite('Claim YT-pool LP yield', async (account) => {
-      const { client } = ensureWallet()
+    await runWrite('Claim YT-pool LP yield', async (account, client) => {
       return client.writeContract({
         account,
         chain: mezoTestnet,
@@ -907,6 +901,7 @@ export function ProtocolWorkspace({
               <button className="primary-action" disabled={busy || !targetReady || !exchangeAddress}>{busy ? 'Waiting for wallet…' : 'Approve and mint PT + YT'}</button>
             </form>
             {!exchangeAddress && <p className="field-hint">Select a registered maturity market before minting.</p>}
+            {isConnected && !isTargetChain && <p className="field-warning" role="status">Wallet connected. Switch to Mezo Testnet using the network control above to mint.</p>}
             {exchangeAddress && isMature && <p className="field-hint">This series has reached maturity; new deposits are closed.</p>}
           </div>
           <div className="info-card">
@@ -1061,13 +1056,13 @@ export function ProtocolWorkspace({
               <div className="lp-economics-list">
                 <div className="balance-line"><span>LP share of {tradeToken} pool</span><strong>{formatSharePercent(tokenLiquidityBalance.data, liquiditySupply)}</strong></div>
                 <div className="balance-line"><span>Realized swap fees</span><strong>Not tracked per LP</strong></div>
-                <div className="balance-line"><span>Realized YT-pool yield</span><strong>{tradeToken === 'YT' ? ytLiquidityYieldClaimable.isError ? 'Unavailable' : `${amount(ytLiquidityYieldClaimable.data)} MUSD claimable` : 'Not applicable to PT pool'}</strong></div>
+                <div className="balance-line"><span>Realized YT-pool yield</span><strong>{tradeToken !== 'YT' ? 'Not applicable to PT pool' : ytLiquidityYieldClaimable.isError ? 'Unavailable' : ytLiquidityYieldClaimable.data === undefined ? isConnected ? 'Loading…' : 'Connect wallet to view' : ytLiquidityYieldClaimable.data === BigInt(0) ? 'None realized yet' : `${amount(ytLiquidityYieldClaimable.data)} MUSD claimable`}</strong></div>
                 <div className="balance-line"><span>Incentives</span><strong>None configured</strong></div>
               </div>
               {tradeToken === 'YT' ? (
                 <>
                   <p className="field-hint">
-                    YT held in this pool can realize source-vault yield; the amount above is your currently claimable share, not a projection.
+                    Zero means no realized source yield is claimable to your YT-pool LP position yet. It is separate from minting PT/YT on the Trade page.
                     {ytLiquidityYieldClaimable.isError && ' This market may need the updated contract deployment.'}
                   </p>
                   <button
