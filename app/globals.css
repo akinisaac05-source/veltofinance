@@ -124,6 +124,7 @@ h1 { margin: 0 0 7px; font-size: clamp(27px, 3vw, 34px); font-weight: 650; lette
 .chain-warn, .source-checking { border-color: #eadcc3; background: #fff8eb; color: #81551f; }
 
 .two-column-workspace, .trade-grid, .deploy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.trade-grid:has(> .form-card:only-child) { grid-template-columns: minmax(0, 1fr); }
 .two-column-workspace > .risk-note, .trade-grid > .risk-note { grid-column: 1 / -1; }
 .protocol-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 .protocol-form label, .liquidity-slider-heading label, .liquidity-input-label label { color: #514744; font-size: 11px; font-weight: 600; }
