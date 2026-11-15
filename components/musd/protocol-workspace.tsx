@@ -35,6 +35,7 @@ function asAddress(value: unknown): Address | undefined {
 
 function amount(value: unknown) {
   if (typeof value !== 'bigint') return '—'
+  if (value !== BigInt(0) && value < BigInt(100_000_000_000_000)) return '<0.0001'
   return Number(formatUnits(value, 18)).toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
@@ -60,7 +61,7 @@ function getPoolOverview(pool: unknown) {
   const reserveAsset = typeof parts[0] === 'bigint' ? parts[0] : BigInt(0)
   const reserveToken = typeof parts[1] === 'bigint' ? parts[1] : BigInt(0)
   if (reserveAsset === BigInt(0) || reserveToken === BigInt(0)) {
-    return { liquidity: 'No liquidity', spot: '—', impact: '—' }
+    return { hasReserves: false, hasPracticalDepth: false, liquidity: 'No liquidity', spot: '—', impact: '—' }
   }
 
   const oneMusd = BigInt(10) ** BigInt(18)
@@ -70,6 +71,8 @@ function getPoolOverview(pool: unknown) {
   const spotPrice = Number(formatUnits(reserveAsset, 18)) / Number(formatUnits(reserveToken, 18))
 
   return {
+    hasReserves: true,
+    hasPracticalDepth: impactBps < BigInt(5_000),
     liquidity: `${amount(reserveAsset)} MUSD + ${amount(reserveToken)} tokens`,
     spot: Number.isFinite(spotPrice) ? `${spotPrice.toLocaleString(undefined, { maximumFractionDigits: 6 })} MUSD per token` : '—',
     impact: `${(Number(impactBps) / 100).toFixed(2)}% on a 1 MUSD buy`,
@@ -378,6 +381,7 @@ export function ProtocolWorkspace({
   const selectedPool = tradeToken === 'PT' ? ptPool.data : ytPool.data
   const ptOverview = getPoolOverview(ptPool.data)
   const ytOverview = getPoolOverview(ytPool.data)
+  const selectedPoolOverview = getPoolOverview(selectedPool)
   const selectedPoolParts = Array.isArray(selectedPool) ? selectedPool : []
   const reserveAsset = typeof selectedPoolParts[0] === 'bigint' ? selectedPoolParts[0] : BigInt(0)
   const reserveToken = typeof selectedPoolParts[1] === 'bigint' ? selectedPoolParts[1] : BigInt(0)
@@ -773,6 +777,15 @@ export function ProtocolWorkspace({
             <div><span className="eyebrow">MUSD SAVINGS YIELD · MEZO TESTNET</span><strong>{totalSeriesCount}{' '}{totalSeriesCount === 1 ? 'market' : 'markets'}</strong></div>
             <button type="button" className="primary-action" onClick={() => onNavigate('Create')} disabled={!factoryAddress}>Create market</button>
           </div>
+          {!isConnected ? (
+            <p className="field-warning" role="status">To get started, connect an injected EVM wallet from the top right and switch it to Mezo Testnet. Use testnet assets only; transactions may require wallet approval and network fees.</p>
+          ) : !isTargetChain ? (
+            <p className="field-warning" role="status">Your wallet is connected to another network. Switch to Mezo Testnet from the network control before trading.</p>
+          ) : null}
+          <div className="demo-flow" aria-label="Suggested demo flow">
+            <span className="eyebrow">SUGGESTED DEMO FLOW</span>
+            <p><strong>Choose a maturity</strong><span aria-hidden="true">→</span><strong>Mint PT + YT</strong><span aria-hidden="true">→</span><strong>Trade when reserves support a quote</strong><span aria-hidden="true">→</span><strong>Review your portfolio</strong></p>
+          </div>
 
           {seriesListings.length > 1 && (
             <div className="series-directory" aria-label="Available maturity markets">
@@ -806,14 +819,15 @@ export function ProtocolWorkspace({
               <div className="section-heading"><div><span className="eyebrow">MUSD MARKET</span><h3>PT-MUSD / YT-MUSD</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : isMature ? 'Maturity reached' : 'Open'}</span></div>
               <div className="market-stats">
                 <div><span>Maturity</span><strong>{maturitySeconds ? new Date(Number(maturitySeconds) * 1000).toLocaleDateString() : 'Loading…'}</strong></div>
-                <div className="market-pair-metric"><span>PT / MUSD pool</span><strong>{ptOverview.liquidity}</strong><small>Spot: {ptOverview.spot}</small><small>{ptOverview.impact}</small></div>
-                <div className="market-pair-metric"><span>YT / MUSD pool</span><strong>{ytOverview.liquidity}</strong><small>Spot: {ytOverview.spot}</small><small>{ytOverview.impact}</small></div>
+                <div className="market-pair-metric"><span>PT / MUSD pool</span><strong>{ptOverview.liquidity}</strong><small>{ptOverview.hasPracticalDepth ? 'Reserves available' : ptOverview.hasReserves ? 'Very shallow for a 1 MUSD trade' : 'No executable quote'}</small><small>Spot: {ptOverview.spot}</small><small>{ptOverview.hasReserves ? ptOverview.impact : 'Add liquidity to enable swaps.'}</small></div>
+                <div className="market-pair-metric"><span>YT / MUSD pool</span><strong>{ytOverview.liquidity}</strong><small>{ytOverview.hasPracticalDepth ? 'Reserves available' : ytOverview.hasReserves ? 'Very shallow for a 1 MUSD trade' : 'No executable quote'}</small><small>Spot: {ytOverview.spot}</small><small>{ytOverview.hasReserves ? ytOverview.impact : 'Add liquidity to enable swaps.'}</small></div>
                 <div className="market-pair-metric"><span>Implied fixed yield</span><strong>Not shown</strong><small>No trusted MUSD peg/oracle; testnet pool prices are not a yield oracle.</small></div>
               </div>
-              <p className="testnet-notice"><strong>Mezo Testnet data.</strong> Spot quotes and 1 MUSD trade-impact estimates are derived from current pool reserves; impact includes the 0.30% swap fee. Quotes are not executable guarantees.</p>
+              <p className="testnet-notice"><strong>Mezo Testnet data.</strong> Spot quotes and 1 MUSD trade-impact estimates are derived from current pool reserves; impact includes the 0.30% swap fee. Pools are labelled very shallow when the estimated impact reaches 50%. Quotes are not executable guarantees.</p>
               <div className="action-row">
                 <button className="primary-action" onClick={() => onNavigate('Trade')}>Trade</button>
                 <button className="secondary-action" onClick={() => onNavigate('Mint')}>Mint PT + YT</button>
+                <button className="secondary-action" onClick={() => onNavigate('Liquidity')}>Manage liquidity</button>
               </div>
             </div>
           ) : (
@@ -863,7 +877,7 @@ export function ProtocolWorkspace({
           <div className="form-card">
             <span className="eyebrow">MINT COMPLEMENTARY CLAIMS</span>
             <h3>Deposit MUSD</h3>
-            <p>Deposits MUSD into the live sMUSD vault and mints equal PT and YT units for the selected maturity.</p>
+            <p>Deposits MUSD into the live sMUSD vault and mints equal PT and YT units for the selected maturity. This is an experimental testnet flow, not a guaranteed yield product.</p>
             <div className="balance-line"><span>Wallet MUSD</span><strong>{amount(musdBalance.data)} MUSD</strong></div>
             <form onSubmit={mint} className="protocol-form">
               <label htmlFor="mint-amount">Deposit amount</label>
@@ -971,7 +985,12 @@ export function ProtocolWorkspace({
               <div className="amount-input"><input id="trade-amount" inputMode="decimal" value={tradeAmount} onChange={(event) => { setTradeAmount(event.target.value); setTradePercent(0) }} placeholder="0.00" /><span>{tradeInputSymbol}</span></div>
               <div className="quote-row"><span>You receive (estimated)</span><strong>{amount(marketQuote.data)} {tradeOutputSymbol}</strong></div>
               <div className="quote-row"><span>Maximum slippage</span><strong>1.00%</strong></div>
-              <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !marketQuote.data || marketQuote.data === BigInt(0)}>{busy ? 'Waiting for wallet…' : 'Approve and swap'}</button>
+              {parsedTradeAmount > BigInt(0) && marketQuote.isLoading && <p className="field-hint" role="status">Fetching a live quote from the selected pool…</p>}
+              {parsedTradeAmount > BigInt(0) && marketQuote.isError && <p className="field-warning" role="alert">The live quote could not be loaded. Check the selected maturity and try again.</p>}
+              {parsedTradeAmount > BigInt(0) && marketQuote.data === BigInt(0) && <div className="quote-unavailable" role="status"><p className="field-warning">No executable quote for this amount and direction. The selected pool may have no reserves or insufficient depth.</p><button type="button" className="secondary-action" onClick={() => onNavigate('Liquidity')}>View pool liquidity</button></div>}
+              {parsedTradeAmount > BigInt(0) && typeof marketQuote.data === 'bigint' && marketQuote.data > BigInt(0) && selectedPoolOverview.hasReserves && !selectedPoolOverview.hasPracticalDepth && <p className="field-warning" role="status">This pool is very shallow: a 1 MUSD buy is estimated to have at least 50% price impact. The current quote is not a recommendation to trade.</p>}
+              <p className="field-warning trade-risk-note">Experimental Mezo Testnet contracts only. Quotes can change before confirmation; review the wallet transaction and slippage before approving. Never use mainnet funds.</p>
+              <button className="primary-action" disabled={busy || !targetReady || !marketAddress || !marketQuote.data || marketQuote.data === BigInt(0)}>{busy ? 'Confirm in wallet…' : 'Approve and swap'}</button>
             </form>
           </div>}
           {view === 'Liquidity' && <div className="form-card liquidity-card">
