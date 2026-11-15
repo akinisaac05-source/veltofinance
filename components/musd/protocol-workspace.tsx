@@ -55,6 +55,33 @@ function integerSqrt(value: bigint) {
   return current
 }
 
+function getPoolOverview(pool: unknown) {
+  const parts = Array.isArray(pool) ? pool : []
+  const reserveAsset = typeof parts[0] === 'bigint' ? parts[0] : BigInt(0)
+  const reserveToken = typeof parts[1] === 'bigint' ? parts[1] : BigInt(0)
+  if (reserveAsset === BigInt(0) || reserveToken === BigInt(0)) {
+    return { liquidity: 'No liquidity', spot: '—', impact: '—' }
+  }
+
+  const oneMusd = BigInt(10) ** BigInt(18)
+  const amountOut = (oneMusd * BigInt(9_970) * reserveToken) / (reserveAsset * BigInt(10_000) + oneMusd * BigInt(9_970))
+  const midPriceOut = (oneMusd * reserveToken) / reserveAsset
+  const impactBps = midPriceOut > amountOut ? ((midPriceOut - amountOut) * BigInt(10_000)) / midPriceOut : BigInt(0)
+  const spotPrice = Number(formatUnits(reserveAsset, 18)) / Number(formatUnits(reserveToken, 18))
+
+  return {
+    liquidity: `${amount(reserveAsset)} MUSD + ${amount(reserveToken)} tokens`,
+    spot: Number.isFinite(spotPrice) ? `${spotPrice.toLocaleString(undefined, { maximumFractionDigits: 6 })} MUSD per token` : '—',
+    impact: `${(Number(impactBps) / 100).toFixed(2)}% on a 1 MUSD buy`,
+  }
+}
+
+function formatSharePercent(shares: unknown, totalShares: unknown) {
+  if (typeof shares !== 'bigint' || typeof totalShares !== 'bigint' || totalShares === BigInt(0)) return '—'
+  const basisPoints = (shares * BigInt(1_000_000)) / totalShares
+  return `${(Number(basisPoints) / 10_000).toFixed(2)}%`
+}
+
 function AddressText({ label, value }: { label: string; value?: Address }) {
   const [copied, setCopied] = useState(false)
   if (!value) return null
@@ -349,6 +376,8 @@ export function ProtocolWorkspace({
   const sourceVerified = vaultName.data === 'MUSD Savings Rate' && vaultSymbol.data === 'sMUSD' && typeof vaultSupply.data === 'bigint'
   const canCreateSeries = targetReady && sourceVerified && Boolean(factoryAddress)
   const selectedPool = tradeToken === 'PT' ? ptPool.data : ytPool.data
+  const ptOverview = getPoolOverview(ptPool.data)
+  const ytOverview = getPoolOverview(ytPool.data)
   const selectedPoolParts = Array.isArray(selectedPool) ? selectedPool : []
   const reserveAsset = typeof selectedPoolParts[0] === 'bigint' ? selectedPoolParts[0] : BigInt(0)
   const reserveToken = typeof selectedPoolParts[1] === 'bigint' ? selectedPoolParts[1] : BigInt(0)
@@ -741,7 +770,7 @@ export function ProtocolWorkspace({
       {view === 'Markets' && (
         <div className="workspace-content">
           <div className="market-overview">
-            <div><span className="eyebrow">MUSD SAVINGS YIELD</span><strong>{totalSeriesCount} {totalSeriesCount === 1 ? 'market' : 'markets'}</strong></div>
+            <div><span className="eyebrow">MUSD SAVINGS YIELD · MEZO TESTNET</span><strong>{totalSeriesCount}{' '}{totalSeriesCount === 1 ? 'market' : 'markets'}</strong></div>
             <button type="button" className="primary-action" onClick={() => onNavigate('Create')} disabled={!factoryAddress}>Create market</button>
           </div>
 
@@ -777,9 +806,11 @@ export function ProtocolWorkspace({
               <div className="section-heading"><div><span className="eyebrow">MUSD MARKET</span><h3>PT-MUSD / YT-MUSD</h3></div><span className={`status-pill ${isSettled ? 'status-settled' : 'status-open'}`}>{isSettled ? 'Settled' : isMature ? 'Maturity reached' : 'Open'}</span></div>
               <div className="market-stats">
                 <div><span>Maturity</span><strong>{maturitySeconds ? new Date(Number(maturitySeconds) * 1000).toLocaleDateString() : 'Loading…'}</strong></div>
-                <div><span>PT liquidity</span><strong>{amount(ptPool.data && Array.isArray(ptPool.data) ? ptPool.data[0] : undefined)} MUSD</strong></div>
-                <div><span>YT liquidity</span><strong>{amount(ytPool.data && Array.isArray(ytPool.data) ? ytPool.data[0] : undefined)} MUSD</strong></div>
+                <div className="market-pair-metric"><span>PT / MUSD pool</span><strong>{ptOverview.liquidity}</strong><small>Spot: {ptOverview.spot}</small><small>{ptOverview.impact}</small></div>
+                <div className="market-pair-metric"><span>YT / MUSD pool</span><strong>{ytOverview.liquidity}</strong><small>Spot: {ytOverview.spot}</small><small>{ytOverview.impact}</small></div>
+                <div className="market-pair-metric"><span>Implied fixed yield</span><strong>Not shown</strong><small>No trusted MUSD peg/oracle; testnet pool prices are not a yield oracle.</small></div>
               </div>
+              <p className="testnet-notice"><strong>Mezo Testnet data.</strong> Spot quotes and 1 MUSD trade-impact estimates are derived from current pool reserves; impact includes the 0.30% swap fee. Quotes are not executable guarantees.</p>
               <div className="action-row">
                 <button className="primary-action" onClick={() => onNavigate('Trade')}>Trade</button>
                 <button className="secondary-action" onClick={() => onNavigate('Mint')}>Mint PT + YT</button>
@@ -981,21 +1012,20 @@ export function ProtocolWorkspace({
             <section className="liquidity-section" aria-labelledby="liquidity-yield-title">
               <div className="liquidity-section-heading">
                 <div>
-                  <span className="eyebrow">PROTOCOL YIELD</span>
-                  <h4 id="liquidity-yield-title">{tradeToken === 'YT' ? 'YT pool LP yield' : 'PT pool rewards'}</h4>
+                  <span className="eyebrow">LP ECONOMICS</span>
+                  <h4 id="liquidity-yield-title">Earnings and incentives</h4>
                 </div>
-                {tradeToken === 'YT' && (
-                  <strong className="position-balance">
-                    {ytLiquidityYieldClaimable.isError
-                      ? 'Unavailable'
-                      : `${amount(ytLiquidityYieldClaimable.data)} MUSD`}
-                  </strong>
-                )}
+              </div>
+              <div className="lp-economics-list">
+                <div className="balance-line"><span>LP share of {tradeToken} pool</span><strong>{formatSharePercent(tokenLiquidityBalance.data, liquiditySupply)}</strong></div>
+                <div className="balance-line"><span>Realized swap fees</span><strong>Not tracked per LP</strong></div>
+                <div className="balance-line"><span>Realized YT-pool yield</span><strong>{tradeToken === 'YT' ? ytLiquidityYieldClaimable.isError ? 'Unavailable' : `${amount(ytLiquidityYieldClaimable.data)} MUSD claimable` : 'Not applicable to PT pool'}</strong></div>
+                <div className="balance-line"><span>Incentives</span><strong>None configured</strong></div>
               </div>
               {tradeToken === 'YT' ? (
                 <>
                   <p className="field-hint">
-                    Yield earned by YT held in this pool is allocated to LP shares. Claiming harvests available yield and pays your accrued share in MUSD.
+                    YT held in this pool can realize source-vault yield; the amount above is your currently claimable share, not a projection.
                     {ytLiquidityYieldClaimable.isError && ' This market may need the updated contract deployment.'}
                   </p>
                   <button
@@ -1009,9 +1039,10 @@ export function ProtocolWorkspace({
                 </>
               ) : (
                 <p className="field-hint">
-                  PT liquidity earns swap fees only. Protocol yield is distributed through YT balances, not PT pool shares.
+                  PT-pool shares receive no source-vault yield: PT liquidity earns from swaps only. Swap fees are retained in pool reserves and this contract does not separately account realized fees by LP, so no fee-earnings amount or APR is shown.
                 </p>
               )}
+              <p className="field-warning lp-risk-note">Pool and asset risk: reserve prices can move and liquidity withdrawals may return a different token mix than deposited. YT-pool yield depends on realized sMUSD vault yield; source-vault, smart-contract, market, and testnet risks remain. These unaudited testnet contracts are not for mainnet funds.</p>
             </section>
 
             <section className="liquidity-section remove-liquidity-section" aria-labelledby="remove-liquidity-title">

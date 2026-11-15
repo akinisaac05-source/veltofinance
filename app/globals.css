@@ -116,6 +116,12 @@ h1 { margin: 0 0 7px; font-size: clamp(27px, 3vw, 34px); font-weight: 650; lette
 .market-stats > div, .source-metrics > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 11px; border: 1px solid #e9e4e0; border-radius: 7px; background: var(--surface-soft); }
 .market-stats span, .source-metrics span, .balance-line span, .pool-summary > span { color: #6d625e; font-size: 10px; }
 .market-stats strong, .source-metrics strong, .balance-line strong { color: #2f2927; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.market-pair-metric small { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.testnet-notice { margin: 0; padding: 10px 12px; border: 1px solid #e8d4b4; border-radius: 7px; background: #fff9ee; color: #684c2e; font-size: 11px; line-height: 1.55; }
+.lp-economics-list { display: grid; }
+.lp-economics-list .balance-line { align-items: flex-start; }
+.lp-economics-list .balance-line strong { text-align: right; }
+.lp-risk-note { margin: 0; font-size: 10px; }
 .source-icon { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #e3c9ca; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font: 700 21px Georgia, serif; }
 .source-live, .status-pill, .chain-status { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #dce7df; border-radius: 999px; background: #f3f8f4; color: #275a42; font-size: 10px; white-space: nowrap; }
 .source-live i { width: 6px; height: 6px; border-radius: 50%; background: #32825d; }
