@@ -7,6 +7,7 @@ import { MEZO_DEVELOPER_ADDRESS } from '@/lib/mezo'
 import { NetworkStatus, WalletButton } from './wallet-provider'
 import { ProtocolWorkspace, type WorkspaceView } from './protocol-workspace'
 import { VeMezoWorkspace, type VeMezoView } from './ve-mezo-workspace'
+import { DeveloperLab } from './developer-lab'
 
 type PageView = 'Markets' | 'Trade' | 'Liquidity' | 'Portfolio' | 'Developer' | 'Create' | 'Mint' | 'Redeem'
 type Protocol = 'MUSD' | 'veMEZO'
@@ -51,7 +52,7 @@ export function ExchangeShell() {
 
   const primaryView: PageView = activeView === 'Create' ? 'Markets' : activeView === 'Mint' || activeView === 'Redeem' ? 'Trade' : activeView
   const pageTitle = activeView === 'Developer' ? 'Developer console' : activeView === 'Create' ? 'Create market' : primaryView
-  const pageSubtitle = activeView === 'Markets' ? 'Browse MUSD and veMEZO yield markets.' : activeView === 'Trade' ? 'Swap principal and yield tokens.' : activeView === 'Liquidity' ? 'Add or withdraw liquidity from active markets.' : activeView === 'Portfolio' ? 'Your positions and balances across MUSD and veMEZO.' : activeView === 'Developer' ? 'Protocol configuration and contract deployment.' : activeView === 'Create' ? 'Create a market for a new maturity or eligible veMEZO lock.' : 'Manage your MUSD position and claims.'
+  const pageSubtitle = activeView === 'Markets' ? 'Browse MUSD and veMEZO yield markets.' : activeView === 'Trade' ? 'Swap principal and yield tokens.' : activeView === 'Liquidity' ? 'Add or withdraw liquidity from active markets.' : activeView === 'Portfolio' ? 'Your positions and balances across MUSD and veMEZO.' : activeView === 'Developer' ? 'Protocol configuration, market-design evaluation, and source admission.' : activeView === 'Create' ? 'Create a market for a new maturity or eligible veMEZO lock.' : 'Manage your MUSD position and claims.'
   const showProtocolTabs = ['Markets', 'Trade', 'Liquidity'].includes(activeView)
   const protocolView = activeView as WorkspaceView
   const veMezoView = primaryView as VeMezoView
@@ -91,7 +92,7 @@ export function ExchangeShell() {
           {activeView === 'Portfolio' ? (
             <div className="combined-workspace"><section className="protocol-workspace-section"><div className="section-label">MUSD positions</div><ProtocolWorkspace view="Portfolio" onNavigate={navigate} /></section><section className="protocol-workspace-section"><div className="section-label">veMEZO positions</div><VeMezoWorkspace view="Portfolio" /></section></div>
           ) : activeView === 'Developer' ? (
-            <div className="combined-workspace developer-workspace"><section className="protocol-workspace-section"><div className="section-label">MUSD factory</div><ProtocolWorkspace view="Developer" onNavigate={navigate} /></section><section className="protocol-workspace-section"><div className="section-label">veMEZO factory</div><VeMezoWorkspace view="Developer" /></section></div>
+            <div className="combined-workspace developer-workspace"><section className="protocol-workspace-section"><div className="section-label">MUSD factory</div><ProtocolWorkspace view="Developer" onNavigate={navigate} /></section><section className="protocol-workspace-section"><div className="section-label">veMEZO factory</div><VeMezoWorkspace view="Developer" /></section><section className="protocol-workspace-section"><DeveloperLab /></section></div>
           ) : protocol === 'MUSD' ? (
             <ProtocolWorkspace view={protocolView} onNavigate={navigate} />
           ) : (
