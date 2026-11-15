@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'MUSD & veMEZO Yield Exchange | Mezo Testnet',
-  description: 'Explore MUSD and veMEZO yield markets, trade PT/YT, add liquidity, and view all positions on Mezo Testnet.',
+  title: 'MUSD Yield Exchange — Explore Yield Markets on Mezo',
+  description: 'Explore MUSD savings and veMEZO lock-yield markets. Compare maturities, trade principal and yield tokens, and manage positions on Mezo Testnet.',
   generator: 'v0.app',
   icons: {
     icon: [

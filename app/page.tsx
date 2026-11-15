@@ -1,6 +1,5 @@
-import { ExchangeShell } from '@/components/musd/exchange-shell'
-import { WalletProvider } from '@/components/musd/wallet-provider'
+import { MarketingHome } from '@/components/musd/marketing-home'
 
 export default function Page() {
-  return <WalletProvider><ExchangeShell /></WalletProvider>
+  return <MarketingHome />
 }

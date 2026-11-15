@@ -82,7 +82,7 @@ export function ExchangeShell() {
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-expanded={mobileOpen} aria-label={mobileOpen ? 'Close menu' : 'Open menu'}>{mobileOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}</button>
           <div className="breadcrumbs"><span>Mezo</span><span className="crumb-slash">/</span><strong>{pageTitle}</strong></div>
-          <div className="top-actions"><NetworkStatus /><WalletButton /></div>
+          <div className="top-actions"><a className="app-home-link" href="/" aria-label="Back to MUSD Yield Exchange marketing homepage">Home</a><NetworkStatus /><WalletButton /></div>
         </header>
         <section className="page-content" aria-label={`${pageTitle} workspace`}>
           <div className="heading-row">
