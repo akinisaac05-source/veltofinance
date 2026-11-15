@@ -83,7 +83,27 @@ export function VeMezoWorkspace() {
     () => (ownedNftReads.data ?? []).flatMap((result) => result.status === 'success' && typeof result.result === 'bigint' ? [result.result] : []),
     [ownedNftReads.data],
   )
-  const selectedId = selectedNft ? BigInt(selectedNft) : (ownedNftIds[0] ?? BigInt(0))
+  const factorySeriesRead = useReadContract({
+    address: factoryAddress ?? zeroAddress,
+    abi: factoryAbi,
+    functionName: 'seriesPage',
+    args: [BigInt(0), BigInt(50)],
+    query: { enabled: Boolean(address && factoryAddress) },
+  })
+  const createdPositionIds = useMemo(() => {
+    const page = factorySeriesRead.data
+    if (!address || !Array.isArray(page) || !Array.isArray(page[0]) || !Array.isArray(page[4])) return []
+    return page[0].flatMap((id, index) =>
+      typeof id === 'bigint' && typeof page[4][index] === 'string' && page[4][index].toLowerCase() === address.toLowerCase()
+        ? [id]
+        : [],
+    )
+  }, [address, factorySeriesRead.data])
+  const positionIds = useMemo(
+    () => Array.from(new Set([...ownedNftIds, ...createdPositionIds].map((id) => id.toString()))).map(BigInt),
+    [createdPositionIds, ownedNftIds],
+  )
+  const selectedId = selectedNft ? BigInt(selectedNft) : (positionIds[0] ?? BigInt(0))
 
   const lockedRead = useReadContract({
     address: VEMEZO_ADDRESS,
@@ -435,7 +455,7 @@ export function VeMezoWorkspace() {
           <div className="source-heading"><span className="source-icon">v</span><div><span className="eyebrow">LIVE TESTNET CONTRACTS</span><h3>veMEZO escrow and rebase distributor</h3></div><span className="source-live"><i />Chain {MEZO_TESTNET_CHAIN_ID}</span></div>
           <div className="source-metrics">
             <div><span>Underlying</span><strong>MEZO · 18 decimals</strong></div>
-            <div><span>Your veMEZO NFTs</span><strong>{nftCountRead.isLoading ? 'Reading…' : String(nftCountRead.data ?? 0)}</strong></div>
+            <div><span>Wallet veMEZO NFTs</span><strong>{nftCountRead.isLoading ? 'Reading…' : String(nftCountRead.data ?? 0)}</strong></div>
             <div><span>Rebase source</span><strong>Weekly RewardsDistributor</strong></div>
             <div><span>Settlement delay</span><strong>7 days + epoch checkpoint</strong></div>
           </div>
@@ -446,14 +466,17 @@ export function VeMezoWorkspace() {
 
         <div className="two-column-workspace">
           <div className="form-card">
-            <span className="eyebrow">POSITION SETUP</span><h3>Select your eligible veMEZO NFT</h3>
-            {!isConnected ? <p className="field-hint">Connect a wallet on Mezo Testnet to read veMEZO positions.</p> : nftCount === 0 ? (
-              <p className="field-hint">No veMEZO NFTs were found in this wallet. Create a normal MEZO lock on Mezo Testnet first; permanent and managed NFTs are not eligible in this test build.</p>
+            <span className="eyebrow">POSITION SETUP</span><h3>Select a veMEZO NFT or PT/YT position</h3>
+            {!isConnected ? <p className="field-hint">Connect a wallet on Mezo Testnet to read veMEZO positions.</p> : positionIds.length === 0 ? (
+              <p className="field-hint">No veMEZO NFTs or PT/YT positions were found for this wallet. Create a normal MEZO lock on Mezo Testnet first; permanent and managed NFTs are not eligible in this test build.</p>
             ) : (
               <div className="protocol-form">
-                <label htmlFor="ve-mezo-token-id">veMEZO NFT</label>
+                <label htmlFor="ve-mezo-token-id">veMEZO NFT or position</label>
                 <select id="ve-mezo-token-id" value={selectedId.toString()} onChange={(event) => setSelectedNft(event.target.value)}>
-                  {ownedNftIds.map((id) => <option key={id.toString()} value={id.toString()}>Token #{id.toString()}</option>)}
+                  {positionIds.map((id) => {
+                    const hasSeries = createdPositionIds.includes(id)
+                    return <option key={id.toString()} value={id.toString()}>{hasSeries ? `Token #${id.toString()} · PT/YT position` : `Token #${id.toString()}`}</option>
+                  })}
                 </select>
                 {lock && <div className="source-metrics ve-position-metrics">
                   <div><span>Locked principal</span><strong>{displayAmount(BigInt(lock.amount < 0 ? -lock.amount : lock.amount))} MEZO</strong></div>
