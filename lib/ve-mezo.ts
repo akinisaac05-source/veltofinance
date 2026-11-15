@@ -3,7 +3,7 @@ import { isAddress, type Address } from 'viem'
 export const VEMEZO_ADDRESS: Address = '0xaCE816CA2bcc9b12C59799dcC5A959Fb9b98111b'
 export const VEMEZO_DISTRIBUTOR_ADDRESS: Address = '0x2962E8817ae716019F759d098e2caE658bDcAd04'
 export const MEZO_TOKEN_ADDRESS: Address = '0x7B7c000000000000000000000000000000000001'
-const configuredFactory = process.env.NEXT_PUBLIC_VEMEZO_YIELD_FACTORY_ADDRESS
+const configuredFactory = process.env.NEXT_PUBLIC_VEMEZO_YIELD_FACTORY_ADDRESS ?? '0x45374d75ddf7c6c496776c7d33d1eb85a363990d'
 export const VEMEZO_YIELD_FACTORY_ADDRESS: Address | undefined =
   configuredFactory && isAddress(configuredFactory) ? configuredFactory : undefined
 
